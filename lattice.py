@@ -300,7 +300,7 @@ def pos_honeycomb(shapeCell = 'square'):
 
 
 def FQHE_2DEG_Intfun(m, asp, j1, j2, j2p, j1p):
-  """ define summation serials
+  """ define summation serials of a single scattering process, not matrix elements
       Define the Coulomb interaction elements for a single scattering process 
       of j1p --> j1; j2p --> j2
       Args: 
@@ -334,13 +334,20 @@ def FQHE_2DEG_Intfun(m, asp, j1, j2, j2p, j1p):
   return Vjj
 
 def FQHE_2DEG_Int(m, asp):
-
+  """ Define the all possible scattering matrix between two basis functions
+      Both direct and exchange channels are included
+      Args:
+          m: total sites
+          asp: width/length sqrt(a/b)
+      Return:
+          Vjjt: all possible scattering amplitude from (j1p,j2p) --> (j1,j2) 
+  """
   import numpy as np
   import itertools
   twoe_basis = itertools.combinations(range(m), 2)
   
   Vjjt = {v:{} for v in twoe_basis}
-
+  
   for inits in Vjjt: 
     j1p = inits[0]  # aj1p^+ aj2p^+ | 0 >
     j2p = inits[1]
@@ -350,8 +357,8 @@ def FQHE_2DEG_Int(m, asp):
       j2 = finls[1]
 
       finlsp = tuple([j2,j1])
-      Vjj1 = FQHE_2DEG_Intfun(m, asp, j1, j2, j2p, j1p)
-      Vjj2 = FQHE_2DEG_Intfun(m, asp, j2, j1, j2p, j1p)
+      Vjj1 = FQHE_2DEG_Intfun(m, asp, j1, j2, j2p, j1p) # direct scattering
+      Vjj2 = FQHE_2DEG_Intfun(m, asp, j2, j1, j2p, j1p) # exchange interaction
 
       if Vjj1 != 0 or Vjj2 != 0:
         Vjjt[inits][finls] = Vjj1 - Vjj2 # [Vjj1, Vjj2]
