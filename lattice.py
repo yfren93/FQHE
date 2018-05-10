@@ -366,6 +366,76 @@ def FQHE_2DEG_Int(m, asp):
   return Vjjt
 
 
+def FQHE_2DEG_Intfun_Interlayer(m, asp, j1, j2, j2p, j1p, d):
+  """ define summation serials of a single scattering process, not matrix elements
+      Define the Coulomb interaction elements for a single scattering process 
+      of j1p --> j1; j2p --> j2
+      Args: 
+          m: total sites/ total possible momentum
+          asp: aspect of width and length of central region
+          j1, j1p: final and initial states of electron 1
+          j2, j2p: final and initial states of electron 2
+      Return:
+          Vjj: matrix elements for the specific scattering process
+  """
+
+  import numpy as np
+ 
+  sumcut = 10
+  iasp = 1.0/asp
+  d1 = d*np.sqrt(2.0*np.pi/m) # d in unit of l
+
+  Vjj = 0.0j
+
+  if np.mod(j1+j2-j2p-j1p, m) != 0:
+    Vjj = 0
+  else:
+    for ss in range(-1*sumcut, sumcut) :
+      for tt in range(-1*sumcut, sumcut) :
+        tt1 = tt*m + j2 - j2p
+        if tt1 != 0 or ss != 0 :
+          qst = np.sqrt((ss*iasp)**2+(tt1*asp)**2)
+          Vjj += np.exp(-d1*qst)*np.exp(-np.pi/m*qst**2)*np.exp(-1j*2*pi/m*ss*(j1-j2p))/qst
+
+  Vjj = Vjj/np.sqrt(2*np.pi*m)
+
+  return Vjj
+
+
+def FQHE_2DEG_Int_Interlayer(m, asp, d):
+  """ Define the all possible scattering matrix between two basis functions
+      Both direct and exchange channels are included
+      Args:
+          m: total sites
+          asp: width/length sqrt(a/b)
+      Return:
+          Vjjt: all possible scattering amplitude of 
+                top layer: j1p --> j1
+                bottom layer: j2p --> j2 
+  """
+  import numpy as np
+  import itertools
+  twoe_basis = itertools.combinations(range(m), 2)
+  
+  Vjjt = {v:{} for v in twoe_basis}
+  
+  for inits in Vjjt: 
+    j1p = inits[0]  # aj1p^+ aj2p^+ | 0 >
+    j2p = inits[1]
+
+    for finls in Vjjt:
+      j1 = finls[0]
+      j2 = finls[1]
+
+      finlsp = tuple([j2,j1])
+      Vjj1 = FQHE_2DEG_Intfun_Interlayer(m, asp, j1, j2, j2p, j1p,d) # direct scattering
+
+      if Vjj1 != 0 :
+        Vjjt[inits][finls] = Vjj1
+
+  return Vjjt
+
+
 if __name__ == '__main__':
 
   from scipy.special import comb
