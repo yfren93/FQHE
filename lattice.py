@@ -301,6 +301,15 @@ def pos_honeycomb(shapeCell = 'square'):
 
 def FQHE_2DEG_Intfun(m, asp, j1, j2, j2p, j1p):
   """ define summation serials
+      Define the Coulomb interaction elements for a single scattering process 
+      of j1p --> j1; j2p --> j2
+      Args: 
+          m: total sites/ total possible momentum
+          asp: aspect of width and length of central region
+          j1, j1p: final and initial states of electron 1
+          j2, j2p: final and initial states of electron 2
+      Return:
+          Vjj: matrix elements for the specific scattering process
   """
 
   import numpy as np
