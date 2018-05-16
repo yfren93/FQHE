@@ -41,7 +41,7 @@ if (Lattice_type == 'honeycomb' or Lattice_type == 'kagome') :
 elif (Lattice_type == 'Lieb') :
   distNN, distNNN, distN3 = 1.0, np.sqrt(2.0), 2  # distance between NN/NNN sites  
 
-Ny,Nx = 2,3
+Ny,Nx = 2,2
 
 Height, Length = nUnit*Ny, Nx  #3, 3
 
@@ -52,7 +52,7 @@ pbcx, pbcy = 1, 1  # boundary condition: 1: true. 0: false
 
 "Global parameters in FQHE of 2DEG"
 V0_interaction = 1  # ke*e^2/epsilon/2l # Energy unit 
-m_flux = 8  # number of flux quantum in area of a*b: a*b/(2*pi*l^2) = a*b*B/(h/2e)
+m_flux = 10  # number of flux quantum in area of a*b: a*b/(2*pi*l^2) = a*b*B/(h/2e)
              # corresponds to the total sites
 ab_aspect = 1  # aspect of the square region defined as sqrt(a/b)
 
@@ -63,8 +63,6 @@ fillingfrac = 2  # Filling fraction of total site
 #N_site = Height * Length  # for lattice model
 N_site = m_flux  # for FQHE system
 n_electron = N_site/fillingfrac
-
-
 
 
 if __name__ == '__main__':

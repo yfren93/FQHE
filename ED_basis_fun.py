@@ -34,7 +34,6 @@ def get_basis_U1(N,n):
 
 
 def sortU1basis_k_FQHE(sq2bas0) :
-  
   """ sort the U1 basis functions according to the total momentum
       This code suitable for the FQHE case, or equivalently, 1D 
       chain system.
@@ -61,7 +60,7 @@ def sortU1basis_k_FQHE(sq2bas0) :
     bas2sq[momentum][tuple(bas)] = N_bk[momentum]
     N_bk[momentum] += 1
 
-  return sq2bas, bas2sq
+  return sq2bas, bas2sq, N_bk
 
 
 def get_IntMatEle(bas2sq, sq2bas, Vjjt): 
@@ -88,6 +87,8 @@ def get_IntMatEle(bas2sq, sq2bas, Vjjt):
     occp = np.nonzero(bas)  # occupied positions of electrons
     inits = list(itertools.combinations(list(occp)[0],2))  # find initial pair of electrons 
 
+    print 'Intralayer basis: ', inits, occp
+
     datd += [0]
     for init_i in inits:  # find the possible scattering states
       for fins in Vjjt[init_i].keys():  # find the possible final states
@@ -102,31 +103,52 @@ def get_IntMatEle(bas2sq, sq2bas, Vjjt):
 
           ss0 = sorted([init_i[0], fins[0]])
           ss1 = sorted([init_i[1], fins[1]])
-          exchangetime = sum(bas[ss0[0]:ss0[1]]) + sum(bas[ss1[0]:ss1[1]]) 
-
+          #exchangetime = sum(bas[ss0[0]:ss0[1]]) + sum(bas[ss1[0]:ss1[1]]) 
+          exchangetime = sum(bas[0:init_i[0]]) + sum(bas[0:init_i[1]]) - 1
+          exchangetime += sum(bas1[0:fins[0]]) + sum(bas1[0:fins[1]]) - 1
+           
           if jj == ii :  # if diagonal term
-            datd[ii] += -1**exchangetime*Vjjt[init_i][fins]
+            datd[ii] += (-1)**exchangetime*Vjjt[init_i][fins]
           else : 
             row += [int(ii)]
             col += [int(jj)]
-            dat += [-1**exchangetime*Vjjt[init_i][fins]]
+            dat += [(-1)**exchangetime*Vjjt[init_i][fins]]
   
   dat += datd
   row += range(0,len(datd))
   col += range(0,len(datd))
   return row, col, dat
 
+def get_bilayer_bas(sq2basT, sq2basB):
+  """get the basis functions of bilayer system based on the basis functions of 
+          two layers separately denoted by T & B
+     Args:
+         sq2basT: map from sequence to basis function configuration, top layer
+         sq2basB: map from sequence to basis function configuration, bottom layer
+     Outputs:
+         mapsb: double map between sequence and bas n <--> (n_T, n_B)
+  """
+  sq2bas = {}
+  bas2sq = {}
+  sq = 0
+  for ii in sq2basT.keys():
+    for jj in sq2basB.keys():
+      sq2bas[sq] = tuple([ii,jj])
+      bas2sq[tuple([ii,jj])] = sq
+      sq += 1
 
-def bilayer_FQHE_MatEle(bas2sq, sq2bas, Vjjt, d) :
-  """get matrix element of bilayer FQHE system
-     ! Two layers are the same
+  return sq2bas, bas2sq
+
+
+def get_FQHE_Interlayer_MatEle(bas2sq, sq2bas, bas2sqT, sq2basT, bas2sqB, sq2basB, VjjtIntL) :
+  """get interlayer coupling matrix element of bilayer FQHE system
      ! Electron can only stay in one layer
-     Args: 
-         bas2sq: map basis function to sequence
-         sq2bas: map sequence to basis function
-         Vjjt: interaction matrix elements between a single layer
-         d: interlayer distance, in unit of lB, modify the matrix element by e^(-qd)
-            for interlayer interaction, there is no exchange term
+     Args:
+         bas2sq: map basis function of bilayer system to sequence
+         sq2bas: map sequence to basis function of bilayer 
+         bas2sqT/B: map basis function to sequence for top/bottom layer
+         sq2basT/B: map sequence to basis function for top/bottom layer
+         VjjtIntL: Interlayer interaction matrix elements
      Output:
          row, col, dat: all nonzero matrix element
      Notes:
@@ -135,10 +157,71 @@ def bilayer_FQHE_MatEle(bas2sq, sq2bas, Vjjt, d) :
          m and n are basis functions in a single layer, while t and b denote the top 
          and bottom layers, separately.
   """
-  
-  a = 0
-  return a
+  import scipy.sparse as sps 
+  import numpy as np
+  import itertools
 
+  row = []
+  col = []
+  dat = []
+  nT = sum(sq2basT[0])
+  nB = sum(sq2basB[0])
+ 
+  for ii in sq2bas.keys():  # for ii-th basis
+    bas = sq2bas[ii]
+    basT = list(sq2basT[bas[0]])  # basis function of top layer
+    basB = list(sq2basB[bas[1]])  
+    occpT = tuple(list(np.nonzero(basT))[0])  # occupied positions of electrons
+    occpB = tuple(list(np.nonzero(basB))[0])  
+    inits = list(itertools.product(occpT,occpB))  # find initial pair of electrons 
+
+    #print 'Interlayer basis: ', inits, occpT, occpB
+
+    for init_i in inits:  # find the possible scattering states
+      for fins in VjjtIntL[init_i].keys():  # find the possible final states
+        basT1 = []
+        basT1 = basT1 + basT   # initialize final state list
+        basB1 = []
+        basB1 = basB1 + basB   # initialize final state list
+        basT1[init_i[0]] = 0  # annihilate two electrons of initial state
+        basB1[init_i[1]] = 0  
+        basT1[fins[0]] = 1  # creat two electrons of final states   
+        basB1[fins[1]] = 1
+        if sum(basT1) == nT and sum(basB1) == nB:  # if there are two electrons on the same site
+          jjT = bas2sqT[tuple(basT1)]
+          jjB = bas2sqB[tuple(basB1)]
+          jj = bas2sq[tuple([jjT, jjB])]
+          ss0 = sorted([init_i[0], fins[0]])
+          ss1 = sorted([init_i[1], fins[1]])
+          #exchangetime = sum(basT[ss0[0]:ss0[1]]) + sum(basB[ss1[0]:ss1[1]]) 
+          exchangetime = sum(basT[0:init_i[0]]) + sum(basT1[0:fins[0]]) 
+          exchangetime += sum(basB[0:init_i[1]]) + sum(basB1[0:fins[1]])
+          # sum(basB[0:ss1[0]:ss1[1]]) + sum(basB[ss1[0]:ss1[1]]) 
+
+          row += [int(ii)]
+          col += [int(jj)]
+          dat += [(-1)**exchangetime*VjjtIntL[init_i][fins]]
+  
+  return row, col, dat
+
+
+def get_bilayer_FQHE_Full_MatEle(HamT, HamB, HamTB):
+  """ get the nonzero matrix elements of full matrix 
+      Args:
+          HamT: Top layer Hamiltonian in coo triple format
+          HamB: Bottom layer Hamiltonian in coo triple format
+          HamTB: Interlayer coupling matrix in coo triple format
+      Output:
+          Ham: merged full Hamiltonian with coo triple format
+  """
+  import scipy.sparse as sps
+
+  #Hamkron = sps.kron(HamT, HamB, format='coo')
+  #Ham = sps.hstack(Hamkron, HamTB)
+  HamTf = HamT.toarray()
+  HamBf = HamB.toarray()
+  Ham = 0
+  return Ham
 
 
 def permute_time3(a1,a12) : # a1 tuple, a12 list 
