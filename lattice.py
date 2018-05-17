@@ -331,6 +331,7 @@ def get_ManyParticleBasisfun(SingleParticleBas, NumSPB, n, Length, Heightp):
   import scipy.special as sps
   import itertools
   import numpy as np
+  import time
 
   # Define many particle basis functions
   num_basis = int(sps.comb(NumSPB,n)) # total number of basis functions
@@ -346,16 +347,21 @@ def get_ManyParticleBasisfun(SingleParticleBas, NumSPB, n, Length, Heightp):
 
   num_kbasis = np.zeros((Length*Height/nUnit,),dtype = int)
   #print 'xx', num_kbasis[0], num_kbasis[1]
-
-  for ii in range(0, num_basis):
+  
+  stime = time.time()
+  #for ii in range(0, num_basis):
+  for obii in order_basis: #range(0, num_basis):
     Momtii = np.array([0,0])
-    for jj in order_basis[ii]:
+    #for jj in order_basis[ii]:
+    for jj in obii: #order_basis[ii]:
       Momtii += np.array(SingleParticleBas[jj])[[0,1]]
     num_Momt = np.mod(Momtii[0],Length)+np.mod(Momtii[1],Height/nUnit)*Length
-    StatMom[num_Momt][num_kbasis[num_Momt]] = order_basis[ii]
-    StatMom[num_Momt][tuple(order_basis[ii])] = num_kbasis[num_Momt]
+    StatMom[num_Momt][num_kbasis[num_Momt]] = obii #order_basis[ii]
+    #StatMom[num_Momt][tuple(order_basis[ii])] = num_kbasis[num_Momt]
+    StatMom[num_Momt][tuple(obii)] = num_kbasis[num_Momt]
     num_kbasis[num_Momt] += 1
-
+  etime = time.time()
+  print 'numbas =', num_basis, 'time =', etime - stime
   return StatMom, num_kbasis
 
 
@@ -489,6 +495,29 @@ def get_Kagome_IntMatEle(bas2sq, sq2bas, Vjjt, Onsite):
 
   return row, col, dat
 
+
+def classify_VjjK(Vjjt, SingleParticleBas): 
+  ns = [0, 0, 0, 0]
+  V00 = []
+  V01 = []
+  V11 = []
+  V02 = []
+  for basi in Vjjt.keys():
+    ns[0] = SingleParticleBas[basi[0]][2]
+    ns[1] = SingleParticleBas[basi[1]][2]
+    for basf in Vjjt[basi].keys():
+      ns[2] = SingleParticleBas[basf[0]][2]
+      ns[3] = SingleParticleBas[basf[1]][2]
+      
+      if sum(ns) == 0:
+        V00 += [Vjjt[basi][basf]]
+      elif sum(ns) == 1:
+        V01 += [Vjjt[basi][basf]]
+      elif sum(ns) == 2 and max(ns) == 1:
+        V11 += [Vjjt[basi][basf]]
+      else:
+        V02 += [Vjjt[basi][basf]]
+  return V00, V01, V11, V02
 
 def get_newmap(oldmap, nbas, m):
   """define new map from old ones

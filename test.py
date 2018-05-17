@@ -110,6 +110,7 @@ EigeBLt = np.zeros((len(dd),eigv_k), dtype=float)
 fig = plt.figure(1)
 for ii in range(len(dd)):
   print '# ii = ', ii
+  stime = time.time()
   d = dd[ii]
   VjjtIntL = FQHE_2DEG_Int_Interlayer(m, asp, d)
   #print VjjtIntL
@@ -123,6 +124,9 @@ for ii in range(len(dd)):
   EigeBL, EigfBL = eigsh(HamBL, k=eigv_k, which=mode1)
   print sorted(EigeBL)
   EigeBLt[ii,:] = np.real(sorted(EigeBL))-np.amin(EigeBL)
+
+  etime = time.time()
+  print 'get basis time =', etime - stime
 
   plt.clf()
   plt.plot(dd, EigeBLt[:,0:5],'-o')

@@ -8,6 +8,8 @@ import itertools
 from scipy.sparse.linalg import eigsh
 import matplotlib.pyplot as plt
 from lattice import *
+import sys
+import time 
 
 global Height, Length, nNNcell, pbcx, pbcy, N_site, n_electron, distNN, distNNN, distN3, Lattice_type
 # define constants
@@ -20,7 +22,7 @@ n = n_electron #N/nUnit
 " Get single particle states in momentum space "
 #UT = GetKagomeUnitaryTransform(phi0=1e-14)
 
-vNN, vNNN, vN3 = 1.0, 0., 0.0
+vNN, vNNN, vN3 = 0.0, 1.0, 0.0
 Flags={}
 Flags['Measure_density'] = False #True
 
@@ -30,7 +32,7 @@ by0 = 2.0*pi/(distNNN)*np.array([0, 1.0])
 bx0 = 2.0*pi/(distNNN)*np.array([np.sqrt(3.0)/2.0, -1.0/2.0])
 #print 'adb =', np.dot(ax0, bx0), np.dot(ay0, by0), np.dot(ax0, by0), np.dot(ay0, bx0)
 
-tunit, Vunit = unit_kagome(V1 = vNN, t1c=1e-14) # default values are for t1-V1 only model
+tunit, Vunit = unit_kagome(V1 = vNN, V2 = vNNN, t1c=1e-14) # default values are for t1-V1 only model
 #print 'Vunit = ', Vunit
 UT = GetKagomeUnitaryTransformV1(tunit, Length, Height/nUnit)
 
@@ -38,7 +40,7 @@ UT = GetKagomeUnitaryTransformV1(tunit, Length, Height/nUnit)
 Vint_q = get_LatticeInteraction_FourierTransform(Vunit, Length, Height/nUnit)
 
 " Define projected basis function "
-Ecut = 5.0 #-2.0+1.5 # Energy cut for projection
+Ecut = -0.9 #-1.5 #-2.0+1.5 # Energy cut for projection
 Ecut1 = -0.0 # Energy cut for projection
 
 print 'Ecut = ', Ecut
@@ -46,29 +48,65 @@ print 'vNN = ', vNN, 'vNNN = ', vNNN
 
 SingleParticleBas, OnSite, kBand, NumSPB = get_Basisfun_Ecut(UT, Ecut, Length, Height/nUnit)
 print SingleParticleBas, NumSPB, OnSite, kBand
-
+print 'number bas =', sps.comb(NumSPB, n)
+#exit()
 Vjjt = get_Kagome_IntEle(SingleParticleBas, NumSPB, UT, Vint_q, Length, Height/nUnit, nUnit)
 
 print 'keys', Vjjt[(0,1)].keys()
 
+V00, V01, V11, V02 = classify_VjjK(Vjjt, SingleParticleBas) 
+
+fig = plt.figure(22)
+ax = fig.add_subplot(1,1,1)
+ax.plot(range(len(V00)), abs(np.array(V00)), 'sr',label='00')
+ax.plot(range(len(V01)), abs(np.array(V01)), '^g',label='01')
+ax.plot(range(len(V11)), abs(np.array(V11)), 'ob',label='11')
+ax.plot(range(len(V02)), abs(np.array(V02)), '+k',label='02')
+ax.legend()
+plt.show()
+exit()
 StatMom, num_kbasis = get_ManyParticleBasisfun(SingleParticleBas, NumSPB, n, Length, Height/nUnit)
 print num_kbasis
 print 'StatM', StatMom.keys()
 mode1 = 'SA'
-eigv_k = 4
+eigv_k = 10
 
-for ii in range(0,1): #Length*Height/nUnit):
+print num_kbasis, 'size StatMom =', sys.getsizeof(StatMom)/1024.0/1024.0/1024.0, 'G'
+
+eigekk = np.zeros((Length*Height/nUnit, eigv_k),)
+for ii in range(0,Length*Height/nUnit):
+  stime = time.time()
   sq2bas, bas2sq = get_newmap(StatMom[ii], num_kbasis[ii], NumSPB)
   #print 'bas old ', ii, '\n', StatMom[ii]
-  print 'bas new ', ii, '\n', sq2bas
+  #print 'bas new ', ii, '\n', sq2bas
+  etime = time.time()
+  print 'ii=', ii, 'time =', etime - stime
 
+  stime = time.time()
   row_s, col_s, data_s = get_Kagome_IntMatEle(bas2sq, sq2bas, Vjjt, OnSite)
-  Ham_triple = sp.sparse.coo_matrix((data_s,(row_s,col_s)), shape = (num_kbasis[ii],num_kbasis[ii]))
+  etime = time.time()
+  print 'size data_s =', sys.getsizeof(data_s)/1024.0/1024.0/1024.0, 'G'
+  print 'time of get matrix element =', etime - stime
+
+  Ham_triple = sp.sparse.coo_matrix((data_s,(row_s,col_s)), shape = (num_kbasis[ii], num_kbasis[ii]))
+
+  stime = time.time()
   Eige0, Eigf0 = eigsh(Ham_triple, k=eigv_k, which = mode1)
+  etime = time.time()
+  print 'size Eigf0 =', sys.getsizeof(Eigf0)/1024.0/1024.0/1024.0, 'G'
+  print 'time of get eigenvalue =', etime - stime
   print sorted(Eige0)
-  alp = Ham_triple.toarray() 
-  print alp
-  print 'mx =', np.amax(np.amax(abs(alp-np.conjugate(alp.T))))
+  eigekk[ii,:] = sorted(Eige0)
+  #alp = Ham_triple.toarray() 
+  #print alp
+  #print 'mx =', np.amax(np.amax(abs(alp-np.conjugate(alp.T))))
+
+  fig = plt.figure(1)
+  plt.clf
+  plt.plot(range(Length*Height/nUnit), eigekk, 'b_')
+  plt.pause(1)
+np.savetxt('EigeH%dL%dV2_0_Ec_09.txt'%(Height,Length), eigekk)
+plt.show()
 exit()
 
 #for ii in range(0,9):

@@ -87,7 +87,7 @@ def get_IntMatEle(bas2sq, sq2bas, Vjjt):
     occp = np.nonzero(bas)  # occupied positions of electrons
     inits = list(itertools.combinations(list(occp)[0],2))  # find initial pair of electrons 
 
-    print 'Intralayer basis: ', inits, occp
+    #print 'Intralayer basis: ', inits, occp
 
     datd += [0]
     for init_i in inits:  # find the possible scattering states
