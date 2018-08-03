@@ -15,9 +15,19 @@ from matplotlib import cm
 
 #plt.switch_backend('agg')
 
+'''
+  Function region starts
+'''
+#def get_bilayer_Hamiltonian()
+
+'''
+  Function region ends
+'''
+
 mry0 = psutil.virtual_memory().used/1024.0**3
 
-init_date()
+init_date()  # start time
+
 "test tight-binding model and band structure"
 testband = 0
 if testband :
@@ -79,12 +89,13 @@ if singlelayer :
   tnote(ts, mry0, 'get eigenvalue time =') 
   print sorted(Eige0), 'per electron ', sorted(Eige0)[0]/n_electron
 
-#fig=plt.figure(20)
+"------------------------------------------------------------"
+
+"test bilayer FQHE systems"
 
 #dd = np.linspace(0,2,21)
 dd = [0.8]
 #dd = [1.4]
-"test bilayer FQHE systems"
 bilayerfull = 0
 if bilayerfull :
   sq2basTB, bas2sqTB = get_bilayer_bas(sq2bas, sq2bas)
@@ -100,7 +111,6 @@ if bilayerfull :
     #break
     row1, col1, dat1 = get_FQHE_Interlayer_MatEle(bas2sqTB, sq2basTB, bas2sq, sq2bas, bas2sq, sq2bas, VjjtIntL)
 
-    #HamBL = sps.kron(Ham, Ham, format='coo') #+ 0.0*sp.sparse.coo_matrix((dat1,(row1, col1)), shape=(numbas**2, numbas**2))
     HamBL = sps.kron(np.eye(numbas), Hamff, format='coo')
     HamBL += sps.kron(Hamff, np.eye(numbas), format='coo') + sp.sparse.coo_matrix((dat1,(row1, col1)), shape=(numbas**2, numbas**2))
   
@@ -120,19 +130,21 @@ if bilayerfull :
   np.savetxt('EigeBLt_'+str(m)+'_t1.dat', EigeBLt)
   #plt.show()
 
+"------------------------------------------------------------"
+
 "test drag Chern number in bilayer system"
 CalculateDragChernNumber = 1
 if CalculateDragChernNumber :
 
+  Ntheta = 9
+  thetax0 = np.linspace(0*np.pi, fillingfrac*2*np.pi, Ntheta)/n_electron
+  thetay0 = np.linspace(0*np.pi, fillingfrac*2*np.pi, Ntheta)/n_electron
+  print 'thetax = \n', thetax0, 'thetay = \n', thetay0
+
   sq2basTB, bas2sqTB = get_bilayer_bas(sq2bas, sq2bas)
 
   d = dd[0]
-  Ntheta = 9
-  thetax0 = np.linspace(0*np.pi, fillingfrac*2*np.pi, Ntheta)
-  thetay0 = np.linspace(0*np.pi, fillingfrac*2*np.pi, Ntheta)
-  print thetax0, thetay0
-  #print n_electron
-  #exit()
+
   bondflux = np.zeros((Ntheta**2, Ntheta**2), dtype=complex) # iix * Ntheta + iiy
   BerryCur = np.zeros((Ntheta-1, Ntheta-1))
 
@@ -144,14 +156,14 @@ if CalculateDragChernNumber :
       ts = time.time()
 
       # get theta dependent interlayer coupling matrix
-      VjjtIntL = FQHE_2DEG_Int_Interlayer(m, asp, d, thetax=thetax0[iix]/n_electron, thetay=thetay0[iiy]/n_electron)
+      VjjtIntL = FQHE_2DEG_Int_Interlayer(m, asp, d, thetax=thetax0[iix], thetay=thetay0[iiy])
       row1, col1, dat1 = get_FQHE_Interlayer_MatEle(bas2sqTB, sq2basTB, bas2sq, sq2bas, bas2sq, sq2bas, VjjtIntL)
 
       # get new Hamiltonian and eigenstates
       HamBL = sps.kron(np.eye(numbas), Hamff, format='coo')
       HamBL += sps.kron(Hamff, np.eye(numbas), format='coo') + sp.sparse.coo_matrix((dat1,(row1, col1)), shape=(numbas**2, numbas**2))
 
-      #EigeBL, EigfBL = eigsh(HamBL, k=eigv_k, which=mode1)
+      # Calculate eigen-vector with given initial vector from neighbor sites
       if iix == 0 and iiy == 0 :
         EigeBL, EigfBL = eigsh(HamBL, k=eigv_k, which=mode1)
       if iix == 0 and iiy > 0 :
@@ -168,25 +180,22 @@ if CalculateDragChernNumber :
       plt.plot(range(Ntheta**2), EigeBLt[:, 0:5], 'o')
       plt.savefig('EigeBL_Chern_'+str(m)+'_d'+str(int(10*d))+'.eps',format='eps')
 
-      #if iix == 0 :
-      #  if iiy == 0:
-      #    pp = abs(EigfBL[:,EigeBL.argmin()]).argmax()
-
       # calculate the bondflux
       if iix > 0 :
         point_init, point_final = (iix-1)*Ntheta+iiy, iix*Ntheta+iiy  #
         # < init | final > : overlap between initial state of (theta_x0, theta_y0) and final state of (theta_x0 + d_theta, theta_y0)
-        bondflux[point_init, point_final] = renorm_a(np.dot(np.conjugate(wavfun[:,iiy]), EigfBL[:, EigeBL.argmin()]))
+        #bondflux[point_init, point_final] = renorm_a(np.dot(np.conjugate(wavfun[:,iiy]), EigfBL[:, EigeBL.argmin()]))
+        bondflux[point_init, point_final] = np.dot(np.conjugate(wavfun[:,iiy]), EigfBL[:, EigeBL.argmin()])
         bondflux[point_final, point_init] = np.conjugate(bondflux[point_init, point_final])
 
         print 'bond_flux ', point_init, point_final, bondflux[point_init, point_final]
-      #ppv = EigfBL[pp,EigeBL.argmin()]
       wavfun[:, iiy] = EigfBL[:, EigeBL.argmin()]#*np.conjugate(ppv)/abs(ppv)  # save the ground state wavefunction
 
       if iiy > 0 :
         point_init, point_final = iix*Ntheta+iiy-1, iix*Ntheta+iiy  #
         # < init | final > : overlap between initial state of (theta_x0, theta_y0) and final state of (theta_x0, theta_y0 + d_theta)
-        bondflux[point_init, point_final] = renorm_a(np.dot(np.conjugate(wavfun[:,iiy-1]), wavfun[:,iiy]))
+        #bondflux[point_init, point_final] = renorm_a(np.dot(np.conjugate(wavfun[:,iiy-1]), wavfun[:,iiy]))
+        bondflux[point_init, point_final] = np.dot(np.conjugate(wavfun[:,iiy-1]), wavfun[:,iiy])
         bondflux[point_final, point_init] = np.conjugate(bondflux[point_init, point_final])
 
         print 'bond_flux ', point_init, point_final, bondflux[point_init, point_final]
@@ -196,15 +205,18 @@ if CalculateDragChernNumber :
   np.savetxt('BondFluxBL_Chern_'+str(m)+'_d'+str(int(10*d))+'_i.dat', np.imag(bondflux))
   #plt.show()
 
-  for iix in range(Ntheta-1):
-    for iiy in range(Ntheta-1):
+  for iix in range(Ntheta-1) :
+    for iiy in range(Ntheta-1) :
       pt00, pt10, pt11, pt01 = iix*Ntheta+iiy, (iix+1)*Ntheta+iiy, (iix+1)*Ntheta+(iiy+1), iix*Ntheta+iiy+1
       BerryCur[iix, iiy] = np.imag(bondflux[pt00,pt10]+bondflux[pt10,pt11]+bondflux[pt11,pt01]+bondflux[pt01,pt00])
       print 'Berry Cur ', iix, iiy, BerryCur[iix, iiy]
+
+  np.savetxt('BerryCur_'+str(m)+'_d'+str(int(10*d))+'_i.dat', np.imag(bondflux))
+
   fig=plt.figure(251)
   ax = fig.gca(projection='3d')
   X,Y = np.meshgrid(thetax0[0:Ntheta-1], thetay0[0:Ntheta-1])
-  np.savetxt('BerryCur_'+str(m)+'_d'+str(int(10*d))+'_i.dat', np.imag(bondflux))
   ax.plot_surface(X,Y,BerryCur,cmap=cm.coolwarm)
+
 end_date()
 plt.show()
