@@ -1,9 +1,23 @@
 #!/bin/usr/env python
 from globalpara import *
+import multiprocessing
+import gc
+import sys
+from kronR1 import *
+import time
+import numpy as np
+
+def renorm_a(a):
+  ac = np.zeros((4,),dtype=complex)
+  ac[0] = a
+  ac[1] = -1*a
+  ac[2] = 1j*a
+  ac[3] = -1j*a
+  return ac[np.real(ac).argmax()]
 
 def get_basis_U1(N,n):
   """ get the basis function of system with particle conservation
-  
+      U1: particle conservation symmetry  
   Args: 
       N: total sites
       n: total particles
@@ -87,8 +101,6 @@ def get_IntMatEle(bas2sq, sq2bas, Vjjt):
     occp = np.nonzero(bas)  # occupied positions of electrons
     inits = list(itertools.combinations(list(occp)[0],2))  # find initial pair of electrons 
 
-    #print 'Intralayer basis: ', inits, occp
-
     datd += [0]
     for init_i in inits:  # find the possible scattering states
       for fins in Vjjt[init_i].keys():  # find the possible final states
@@ -103,7 +115,6 @@ def get_IntMatEle(bas2sq, sq2bas, Vjjt):
 
           ss0 = sorted([init_i[0], fins[0]])
           ss1 = sorted([init_i[1], fins[1]])
-          #exchangetime = sum(bas[ss0[0]:ss0[1]]) + sum(bas[ss1[0]:ss1[1]]) 
           exchangetime = sum(bas[0:init_i[0]]) + sum(bas[0:init_i[1]]) - 1
           exchangetime += sum(bas1[0:fins[0]]) + sum(bas1[0:fins[1]]) - 1
            
@@ -138,6 +149,161 @@ def get_bilayer_bas(sq2basT, sq2basB):
       sq += 1
 
   return sq2bas, bas2sq
+
+
+
+def get_bilayer_bas_kt(sq2baskT, sq2baskB, kt, m, bas2sqT, bas2sqB):
+  """get the basis functions of bilayer system of momentum kt based on the basis functions of 
+          two layers separately denoted by T & B
+     Args:
+         sq2basT: map from sequence to basis function configuration, top layer, defined momentum
+         sq2basB: map from sequence to basis function configuration, bottom layer, defined momentum
+     Outputs:
+         mapsb: double map between sequence and bas n <--> (n_T, n_B)
+  """
+  sq2bas = {}
+  bas2sq = {}
+  sq = 0
+
+  for m0 in range(m):
+
+    for ii in sq2baskT[m0].keys():
+      
+      ii0 = bas2sqT[sq2baskT[m0][ii]]
+
+      for jj in sq2baskB[np.mod(kt-m0,m)].keys():
+        jj0 = bas2sqB[sq2baskB[np.mod(kt-m0,m)][jj]]
+
+        sq2bas[sq] = tuple([ii0,jj0])
+        bas2sq[tuple([ii0,jj0])] = sq
+        sq += 1
+
+  return sq2bas, bas2sq
+
+
+def merge_add(args):
+  return get_FQHE_Interlayer_MatEle_sg(*args)
+
+def mpc_get_FQHE_Interlayer_MatEle(Numbas, inpart, npart, bas2sq, sq2bas, bas2sqT, sq2basT, bas2sqB, sq2basB, VjjtIntL):
+
+  cores = multiprocessing.cpu_count()
+  pool = multiprocessing.Pool(processes=cores) 
+
+  row, col, dat = [], [], []
+
+  #npart = 20
+  #for ii0 in range(npart):
+  #  nbas = list( range(ii0*Numbas/npart, min((ii0+1)*Numbas/npart,Numbas)) )
+  #  tasks = [(iibas, bas2sq, sq2bas, bas2sqT, sq2basT, bas2sqB, sq2basB, VjjtIntL) for iibas in nbas]
+  #  result = pool.map(merge_add,tasks)
+  #  del tasks
+  #  gc.collect()
+    
+  #  for ii in result:
+  #    col += ii[1]
+  #    row += ii[0]*len(ii[1])
+  #    dat += ii[2]
+  #    #result.remove(ii)
+  #    #gc.collect()
+  #  
+  #  del result
+  #  gc.collect()
+
+  #nbas = list(range(Numbas))
+  #tasks = [(iibas, bas2sq, sq2bas, bas2sqT, sq2basT, bas2sqB, sq2basB, VjjtIntL) for iibas in nbas]
+
+  #result = pool.map(merge_add,tasks)  
+
+  nbas = list(range(inpart*Numbas/npart, min((inpart+1)*Numbas/npart,Numbas)))
+  print 'xxx', inpart, inpart*Numbas/npart, min((inpart+1)*Numbas/npart,Numbas)
+  tasks = [(iibas, Numbas, bas2sq, sq2bas, bas2sqT, sq2basT, bas2sqB, sq2basB, VjjtIntL) for iibas in nbas]
+  result = pool.map(merge_add, tasks)
+  del tasks
+  pool.close()
+  pool.join()
+
+  gc.collect()
+
+  #for ii in result:
+  #  col += ii[1]
+  #  row += ii[0]*len(ii[1])
+  #  dat += ii[2]
+  #  result.remove(ii)
+  #  gc.collect()
+
+
+  for ii in result:
+    row += ii[0]
+    col += ii[1]
+    dat += ii[2]
+  #print 'type', type(result)
+  #return result #row, col, dat
+  return row, col, dat
+
+
+def get_FQHE_Interlayer_MatEle_sg(iibas, Numbas, bas2sq, sq2bas, bas2sqT, sq2basT, bas2sqB, sq2basB, VjjtIntL) :
+  """get interlayer coupling matrix element of bilayer FQHE system for a single basis function iibas
+     ! Electron can only stay in one layer
+     Args:
+         bas2sq: map basis function of bilayer system to sequence
+         sq2bas: map sequence to basis function of bilayer 
+         bas2sqT/B: map basis function to sequence for top/bottom layer
+         sq2basT/B: map sequence to basis function for top/bottom layer
+         VjjtIntL: Interlayer interaction matrix elements
+     Output:
+         row, col, dat: all nonzero matrix element
+     Notes:
+         In above, basis function and sequence are for electron in a single layer.
+         For a bilayer system, the basis functions are formulated by |m_t, n_b > where
+         m and n are basis functions in a single layer, while t and b denote the top 
+         and bottom layers, separately.
+  """
+  import scipy.sparse as sps 
+  import numpy as np
+  import itertools
+
+  row = [] #[iibas]
+  col = []
+  dat = []
+  #Hf0 = sps.dok_matrix((Numbas, Numbas),dtype=complex)
+  nT = sum(sq2basT[0])
+  nB = sum(sq2basB[0])
+ 
+  for ii in [iibas]:  # for ii-th basis
+    bas = sq2bas[ii]
+    basT = list(sq2basT[bas[0]])  # basis function of top layer
+    basB = list(sq2basB[bas[1]])  
+    occpT = tuple(list(np.nonzero(basT))[0])  # occupied positions of electrons
+    occpB = tuple(list(np.nonzero(basB))[0])  
+    inits = list(itertools.product(occpT,occpB))  # find initial pair of electrons 
+
+    for init_i in inits:  # find the possible scattering states
+      for fins in VjjtIntL[init_i].keys():  # find the possible final states
+        basT1 = []
+        basT1 = basT1 + basT   # initialize final state list
+        basB1 = []
+        basB1 = basB1 + basB   # initialize final state list
+        basT1[init_i[0]] = 0  # annihilate two electrons of initial state
+        basB1[init_i[1]] = 0  
+        basT1[fins[0]] = 1  # creat two electrons of final states   
+        basB1[fins[1]] = 1
+        if sum(basT1) == nT and sum(basB1) == nB:  # if there are two electrons on the same site
+          jjT = bas2sqT[tuple(basT1)]
+          jjB = bas2sqB[tuple(basB1)]
+          jj = bas2sq[tuple([jjT, jjB])]
+          ss0 = sorted([init_i[0], fins[0]])
+          ss1 = sorted([init_i[1], fins[1]])
+          exchangetime = sum(basT[0:init_i[0]]) + sum(basT1[0:fins[0]]) 
+          exchangetime += sum(basB[0:init_i[1]]) + sum(basB1[0:fins[1]])
+          #Hf0[ii, jj] += (-1)**exchangetime*VjjtIntL[init_i][fins]
+          row += [int(ii)]
+          col += [int(jj)]
+          dat += [(-1)**exchangetime*VjjtIntL[init_i][fins]]
+  return row, col, dat
+  #return Hf0
+
+
+
 
 
 def get_FQHE_Interlayer_MatEle(bas2sq, sq2bas, bas2sqT, sq2basT, bas2sqB, sq2basB, VjjtIntL) :
@@ -175,8 +341,6 @@ def get_FQHE_Interlayer_MatEle(bas2sq, sq2bas, bas2sqT, sq2basT, bas2sqB, sq2bas
     occpB = tuple(list(np.nonzero(basB))[0])  
     inits = list(itertools.product(occpT,occpB))  # find initial pair of electrons 
 
-    #print 'Interlayer basis: ', inits, occpT, occpB
-
     for init_i in inits:  # find the possible scattering states
       for fins in VjjtIntL[init_i].keys():  # find the possible final states
         basT1 = []
@@ -193,35 +357,14 @@ def get_FQHE_Interlayer_MatEle(bas2sq, sq2bas, bas2sqT, sq2basT, bas2sqB, sq2bas
           jj = bas2sq[tuple([jjT, jjB])]
           ss0 = sorted([init_i[0], fins[0]])
           ss1 = sorted([init_i[1], fins[1]])
-          #exchangetime = sum(basT[ss0[0]:ss0[1]]) + sum(basB[ss1[0]:ss1[1]]) 
           exchangetime = sum(basT[0:init_i[0]]) + sum(basT1[0:fins[0]]) 
           exchangetime += sum(basB[0:init_i[1]]) + sum(basB1[0:fins[1]])
-          # sum(basB[0:ss1[0]:ss1[1]]) + sum(basB[ss1[0]:ss1[1]]) 
 
           row += [int(ii)]
           col += [int(jj)]
           dat += [(-1)**exchangetime*VjjtIntL[init_i][fins]]
   
   return row, col, dat
-
-
-def get_bilayer_FQHE_Full_MatEle(HamT, HamB, HamTB):
-  """ get the nonzero matrix elements of full matrix 
-      Args:
-          HamT: Top layer Hamiltonian in coo triple format
-          HamB: Bottom layer Hamiltonian in coo triple format
-          HamTB: Interlayer coupling matrix in coo triple format
-      Output:
-          Ham: merged full Hamiltonian with coo triple format
-  """
-  import scipy.sparse as sps
-
-  #Hamkron = sps.kron(HamT, HamB, format='coo')
-  #Ham = sps.hstack(Hamkron, HamTB)
-  HamTf = HamT.toarray()
-  HamBf = HamB.toarray()
-  Ham = 0
-  return Ham
 
 
 def permute_time3(a1,a12) : # a1 tuple, a12 list 
@@ -256,6 +399,156 @@ def permute_time3(a1,a12) : # a1 tuple, a12 list
       ds2[ii] = ds1[ii]
 
   return permut
+
+
+
+def get_diag_block(Hamk, N_bk, kt, m):
+  """ Get the block-diagonalized Hamiltnoian matrix elements
+  Args:
+      Hamk: block Hamiltonian in each layer
+      N_bk: dimension of each block in single layer
+      kt: total momentum of electrons in both layers
+      m: momentum number
+  Outputs:
+      H0: sparse matrix of block-diagonalized Hamiltonian
+  """
+
+  import scipy.sparse as sps
+
+  ts = time.time()
+  mry0 = psutil.virtual_memory().used/1024.0**3
+ 
+  for ii in [0]:   # Top layer       # Bottom layer
+    H0 = sps.kron(np.eye(N_bk[ii]), Hamk[int(np.mod(kt-ii,m))], format='coo')
+    H0 += sps.kron(Hamk[ii], np.eye(N_bk[int(np.mod(kt-ii,m))]), format='coo')
+  #tnote(ts, mry0, 'get block1 = ')
+  #print '  size of H0_%d ='%(ii), sys.getsizeof(H0)/1024.0/1024.0/1024.0, 'G'
+
+  for ii in range(1,m):   # Top layer       # Bottom layer
+    ts = time.time()
+    HamTBk = sps.kron(np.eye(N_bk[ii]), Hamk[int(np.mod(kt-ii,m))], format='coo')
+    HamTBk += sps.kron(Hamk[ii], np.eye(N_bk[int(np.mod(kt-ii,m))]), format='coo')
+    H0 = sps.block_diag((H0,HamTBk))
+    #tnote(ts, mry0, 'get block%d = '%(ii))
+    #print '  size of H0_%d ='%(ii), sys.getsizeof(H0)/1024.0/1024.0/1024.0, 'G'
+    
+  del HamTBk
+  gc.collect()
+
+  return H0
+
+
+def get_diag_block1(Hamk, N_bk, kt, m):
+  """ Get the block-diagonalized Hamiltnoian matrix elements
+  Args:
+      Hamk: block Hamiltonian in each layer
+      N_bk: dimension of each block in single layer
+      kt: total momentum of electrons in both layers
+      m: momentum number
+  Outputs:
+      H0: sparse matrix of block-diagonalized Hamiltonian
+  """
+
+  import scipy.sparse as sps
+
+  ts = time.time()
+  mry0 = psutil.virtual_memory().used/1024.0**3
+ 
+  for ii in [0]:   # Top layer       # Bottom layer
+    H0 = kronR(np.eye(N_bk[ii]), Hamk[int(np.mod(kt-ii,m))], format='coo')
+    H0 += kronR(Hamk[ii], np.eye(N_bk[int(np.mod(kt-ii,m))]), format='coo')
+  tnote(ts, mry0, 'get block1 = ')
+  print '  size of H0_%d ='%(ii), sys.getsizeof(H0)/1024.0/1024.0/1024.0, 'G'
+  print H0.nnz
+
+  for ii in range(1,m):   # Top layer       # Bottom layer
+    ts = time.time()
+    HamTBk = kronR(np.eye(N_bk[ii]), Hamk[int(np.mod(kt-ii,m))], format='coo')
+    HamTBk += kronR(Hamk[ii], np.eye(N_bk[int(np.mod(kt-ii,m))]), format='coo')
+    H0 = sps.block_diag((H0,HamTBk), format='coo')
+    del HamTBk
+    gc.collect()
+    tnote(ts, mry0, 'get block%d = '%(ii))
+    print '  size of H0_%d ='%(ii), sys.getsizeof(H0)/1024.0/1024.0/1024.0, 'G'
+
+    exit()
+    
+  #del HamTBk
+  #gc.collect()
+
+  return H0
+
+
+def get_diag_block2(Hamk, N_bk, kt, m):
+  """ As get_diag_block1 costs a lot of memory.
+      Here, the code is reprogramed by change the sparse matrix to three lists 
+      to avoid the copy of data 
+  Args:
+      Hamk: block Hamiltonian in each layer
+      N_bk: dimension of each block in single layer
+      kt: total momentum of electrons in both layers
+      m: momentum number
+  Outputs:
+      H0: sparse matrix of block-diagonalized Hamiltonian
+  """
+
+  import scipy.sparse as sps
+
+  ts = time.time()
+  mry0 = psutil.virtual_memory().used/1024.0**3
+  row = []
+  col = []
+  data = []
+  nnz = 0
+  ndim = 0
+  for ii in range(0,1):   # Top layer       # Bottom layer
+    print 'ii = ', ii
+    row0, col0, data0, shape0 = kronR(np.eye(N_bk[ii]), Hamk[int(np.mod(kt-ii,m))], format='coo')
+    row0 += ndim
+    row += list(row0)
+    #del row0
+    #gc.collect()
+    col0 += ndim
+    col += list(col0)
+    #del col0 
+    #gc.collect()
+    #print type(data0), '\n', data0
+    data += data0
+    print 'len data =', len(data)
+    #del data0
+    #gc.collect()
+
+    row0, col0, data0, shape0 = kronR(Hamk[ii], np.eye(N_bk[int(np.mod(kt-ii,m))]), format='coo')
+    row += list(row0+ndim)
+    #del row0
+    #gc.collect()
+    col += list(col0+ndim)
+    #del col0 
+    #gc.collect()
+    data += data0
+    print 'len data =', len(data)
+    #del data0
+    #gc.collect()
+    ndim += shape0
+
+    tnote(ts, mry0, 'get block1 = ')
+    print '  size of col_%d ='%(ii), sys.getsizeof(col)/1024.0/1024.0/1024.0, 'G'
+  #del H0
+  #gc.collect()
+
+    tnote(ts, mry0, 'get block%d = '%(ii))
+    print '  size of data_%d ='%(ii), sys.getsizeof(data)/1024.0/1024.0/1024.0, 'G'
+
+  #exit()
+  print 'start  gc  '
+  del row0, col0, data0
+  gc.collect()
+
+  print 'end gc  '
+  time.sleep(3)
+
+  return row, col, data, ndim
+
 
 
 def num_stat(stat,N):
@@ -296,184 +589,199 @@ def num_stat(stat,N):
   return int(nstat-1)
 
 
-def Ham_Operator(which = 'sp', Initialize_stat = 'Normal', vNN = 2.0, vNNN = 0.0, vN3 = 0.0) :
-  """ Define Hamiltonian matrix
-  Based on the basis function | N1, N2, ..., Nn > with N1 < N2 < ... < Nn of a 
-  spinless Fermionic system with N sites and n particles, define the Hamiltonian
-  matrix elements and diagonalize
-
+def trans_symm_basis(N, n, N1, N2, n_unit):
+  ''' This function sort the basis functions into translational inequivalent configurations 
+  denote the equivalent configurations as the same basis.  
   Args: 
-      which: flag for return 
-      vNN, vNNN, vN3: 1st, 2nd, and 3rd neighbor interaction strengths
-      Initialize_stat: flag for if initialize
-
-  """
-
-  # Initialize_stat: 'Normal': calculate all terms 
-  #                  'Initialize': only hop, 'N_Initialize': only diagonal term 
-
-# import numpy as np
+      N, n: total site and electron numbers
+      N1, N2: unit cell numbers along y and x directions
+      n_unit: site number in each unit cell
+  Outputs:
+      renormalize_factor: define the appearance time of each basis
+      map_dob: a dic, map_dob[ii] = [n1,t1,n2,t2 ...]
+                                    n1,n2... are sequence numbers of basis functions 
+                                    t1,t2... are translation operations that relate them to the first one
+      dob1: a dic, dob1[ii] = [(conf1), (conf2), ...] map sequence to all the possible configurations
+      num_stat1: give a basis function, find its sequence in old order
+  '''
   import scipy as sp
+  import numpy as np
+  import scipy.special as sps
   import itertools
-  import time
-  # from scipy.special import factorial
+  import gc
 
-  global Height, Length, nNNcell, pbcx, pbcy, N_site, n_electron, distNN, distNNN, distN3, Lattice_type
+  "Initialize basis functions and their orders: return dob{}, num_stat1{}"
 
-
-  ## ---------------------------------  Lattice Dependent ----------------------------------- ##
-  "Initialize positions and Hamiltonian parameters"
-  if Lattice_type == 'honeycomb' :
-    distNc = pos_honeycomb() # Distance between sites in neighbor cells 
-    tot_coordinate = 3       # number of coordinate sites with << hopping >>
-  elif Lattice_type == 'kagome' :
-    distNc,pos_x,pos_y = pos_kagome()
-    tot_coordinate = 4
-
-
-  ## ---------------------------------  Lattice InDependent ----------------------------------- ##
-  N, n = N_site, n_electron # system size and electron number
-  dist = np.zeros((N, N))
-  # modification PBCs on atomic distances 
-  if ((pbcx==1) and (pbcy==1)) :
-    for ii0 in range(0,N):
-      for jj0 in range(0,N):
-        dist[ii0,jj0] = min(distNc[ii0,jj0,:])
-
-  ts = time.time()
-  "Initialize basis functions and their orders"
-  num_basis = int(sp.special.comb(N,n)) # total number of basis functions
+  num_basis = int(sps.comb(N,n)) # total number of basis functions
   order_basis = list( itertools.combinations(range(N),n) ) # basis functions presents in order
-  te = time.time()
-  print 'Bas num = ', num_basis
-  print 'Bas time = ', te - ts
 
-  # Interaction & hopping 
-  # vNN, vNNN = 0.0, 0.3 # interactions
-  tNN = -1.0          # hopping
-
-  # Define on-site energy that depends on the boundary condition
-  onsite = np.zeros((N,))
-  if (Lattice_type == 'honeycomb') :
-    uA1 = -3.0
-    uA2, uB = 2.0, 0.
-    site_A1 = [1, 10, 13, 22]
-    for ii in range(0,Height):
-      for jj in range(0,Length):
-        if (np.mod((ii+jj),2) == 0):
-          onsite[ii+jj*Height] = uB
-        else:
-          if ((ii+jj*Height) in site_A1):
-            onsite[ii+jj*Height] = uA1
-          else:
-            onsite[ii+jj*Height] = uA2
-
-  #for ii in range(0,N):
-  #  print 'site ',ii+1, ', E =', onsite[ii]
-
-  if (which == 'full'):
-    Ham = np.zeros((num_basis,num_basis))
-
-  '''
-  Define sparsed Hamiltonian in triple format: row, column and data
-  '''
-  row_s = np.zeros(( num_basis*(tot_coordinate*n*2+1), ),dtype=np.int)
-  col_s = np.zeros(( num_basis*(tot_coordinate*n*2+1), ),dtype=np.int)
-  data_s = np.zeros(( num_basis*(tot_coordinate*n*2+1), ))
-  if (Initialize_stat == 'Initialize') :
-    num_elements = int(num_basis-1) # number of nonzero matrix elements
-  else :
-    num_elements = int(-1) # number of nonzero matrix elements
+  dob = {} # dictionary of ordered basis function. key: value --> number: state tuple
+  num_stat1 = {} # same as above dict with key <--> value
 
   for ii in range(0,num_basis):
-    bas = list(order_basis[ii])  # call basis function
-    n_bas = np.delete(np.arange(0,N),bas,None).tolist()
+    dob[ii] = order_basis[ii] # the value is tuple. Define dob
+  num_stat1 = {v:k for k, v in dob.items()} # reverse the key and value
 
-    if (np.mod(ii,10000) == 0):
-      print '%-8.5e'%(float(ii)/num_basis)
+  del order_basis
 
-    if (Initialize_stat != 'Initialize') :
-      "# ---------------------- Diagonal terms ---------------------- #"
-      # numbers of NN and NNN pairs of particles in each state 
-      numNN, numNNN, numN3 = 0, 0, 0
-      for kk in range(0,n):
-        site1 = bas[kk]
-        for kk1 in range(kk+1,n):
-          site2 = bas[kk1]
-          for kk2 in range(0,1):
-            dist12 = dist[site1,site2]
-            if (abs(dist12-distNN) < 0.01) :
-              numNN += 1
-            elif (abs(dist12-distNNN) < 0.01) :
-              numNNN += 1
-            elif (abs(dist12-distN3) < 0.01) :
-              numN3 += 1
-#x          for kk2 in range(0,nNNcell):
-#x            dist12 = distNc[site1,site2,kk2]
-#x            if (abs(dist12-distNN) < 0.01) :
-#x              numNN += 1
-#x            elif (abs(dist12-distNNN) < 0.01) :
-#x              numNNN += 1
-#x            elif (abs(dist12-distN3) < 0.01) :
-#x              numN3 += 1
+  "Initialize the translation operations: return tr[]"
 
-      num_elements += 1
-      row_s[num_elements] = ii
-      col_s[num_elements] = ii
-      # on-site energy & Interaction energy
-      data_s[num_elements] += sum(onsite[bas]) + numNN*vNN + numNNN*vNNN + numN3*vN3
+  tr = np.zeros((N1,N2,N_site),dtype = int) # define translation operator with torus geometry
+  for ii1 in range(0,N1):
+    for ii2 in range(0,N2):
+      for jj in range(0,n_unit):
+        for jj1 in range(0,N1):
+          for jj2 in range(0,N2):
+            tr[ii1, ii2, jj+jj1*n_unit+jj2*Height] = np.mod(jj+(jj1+ii1)*n_unit,Height) + np.mod((jj2+ii2),Length)*Height
 
-      if (which == 'full'):
-        Ham[ii,ii] += data_s[num_elements]
-      #print 'bas[',ii,'] =', bas,'Eint =', Ham[ii,ii]
+  "Re-organize basis function according to the translation operations: return map_dob{}, dob1{}, renormalize_factor"
+  map_dob = {ii:[] for ii in range(0,num_basis)} # new dict that map previous order_basis to new defined basis order
+  dob1 = {}   # dict of block basis function
+  renormalize_factor = [] # renormalization factor of each block basis.
 
-    if (Initialize_stat != 'N_Initialize') :
-      "# ---------------------- Off-diagonal terms ------------------ #"
-      # hopping energy
-      for kk in range(0,n): # kk is index
-        site1 = bas[kk]     # this the site considered
-        # find neighbors
-        for kk1 in n_bas:
-          if (kk1 > site1): # define upper triangle elements
-            if ( abs(dist[site1,kk1]-distNN) < 0.01 ):
-              bas1 = np.array(bas)
-              bas1[kk] = kk1 # change bas1 to new state by substitute
+  num_nb = -1 # number of basis function in reduced block
+  bas1 = np.zeros((n,),dtype = int) # basis obtained after operation
+  while dob != {}:
+    bas = dob[next(iter(dob))]
 
-              # define permutation time /* from Fermion exchange */
-              sign_permute = np.sign(bas1-sorted(bas1))
-              permute_time = np.mod( np.sum(sign_permute), 2.0) - 1.0
-              permute_time = permute_time * np.sign(np.sum(np.abs(sign_permute)))
+    num_nb += 1
 
-              # upper triangle
-              num_elements += 1
-              row_s[num_elements] = ii
-              col_s[num_elements] = num_stat(sorted(bas1),N)
-              data_s[num_elements] = (-1.)**permute_time * tNN
+    dob1[num_nb] = []
+    del_ele = []
+    for ii1 in range(0,N1):
+      for ii2 in range(0,N2):
 
-              if (which == 'full'):
-                Ham[row_s[num_elements], col_s[num_elements]] += data_s[num_elements]
+        bas1[:] = tr[ii1,ii2,bas]
+        t_bas = tuple(bas1)
 
-              # lower triangle
-              num_elements += 1
-              row_s[num_elements] = col_s[num_elements-1]
-              col_s[num_elements] = row_s[num_elements-1]
-              data_s[num_elements] = np.conjugate(data_s[num_elements-1])
+        dob1[num_nb] += [t_bas]
 
-              if (which == 'full'):
-                Ham[row_s[num_elements], col_s[num_elements]] += data_s[num_elements]
+        nbas1 = num_stat1[tuple(sorted(bas1))] # get sequence of basis function
+        map_dob[nbas1] += [num_nb]  # map old nbas1-th state to num_nb-th for block basis
+        map_dob[nbas1] += [ii2+ii1*N2]     # denote the translations along x and y directions
 
-  print 'Finish calculation of Ham_sparse'
+        del_ele += [nbas1]          # delete the used basis in dob
+    for ii in set(del_ele):
+      del dob[ii]
 
-  if (which == 'full'):
-    return Ham
-  else:
-    return num_basis, row_s, col_s, data_s
-#  # Define the sparse Hamiltonian in triple format
-#  if ((which == 'sp') and (Initialize_stat == 'Normal')):
-#    Ham_triple = sp.sparse.coo_matrix((data_s,(row_s,col_s)), shape = (num_basis,num_basis))
-#    return num_elements, Ham_triple
-#  else: 
-#    return num_elements, row_s, col_s, data_s
+    renormalize_factor += [N1*N2/len(set(del_ele))] # define the appearance time of each basis
+
+  gc.collect()
+
+  return renormalize_factor, map_dob, dob1, num_stat1
+
+
+def get_Diagonal_init(renormalize_factor, dob1, N, map_dob, num_stat1, Neib, Neib1, Neib2):
+  '''  Define sparsed Hamiltonian in triple format: row, column and data
+  Args:
+      renormalize_factor, dob1, N, map_dob, num_stat1, Neib, Neib1, Neib2
+  Outputs:
+      data_s[ii]=[n1,n2,n3]: number of 1st, 2nd, and 3rd nearest neighbor pairs
+  '''
+  data_s = [] 
+  num_nonzero = -1
+
+  for mm1 in range(0,len(renormalize_factor)) : # calculate matrix elements for each basis
+    bas = list(dob1[mm1][0]) # bas: tuple
+    n_bas = list(set(range(0,N))-set(bas))
+
+    "# define the diagonal terms"
+    num_couple, num_couple1, num_couple2 = 0, 0, 0
+    for iin in bas:
+      num_couple += len( set(bas) & set(Neib[iin,:]) )
+      num_couple1 += len( set(bas) & set(Neib1[iin,:]) )
+      num_couple2 += len( set(bas) & set(Neib2[iin,:]) )
+
+    data_s += [[num_couple, num_couple1, num_couple2]]
+
+  return data_s
+
+
+def get_OffDiag_init(renormalize_factor, dob1, N, n, tNN, Neib, num_stat1, map_dob):
+
+  off_hop = []
+
+  for mm1 in range(0,len(renormalize_factor)) : # calculate matrix elements for each basis
+    bas = list(dob1[mm1][0]) # bas: tuple
+    n_bas = list(set(range(0,N))-set(bas))
+
+    "# define the coupling to basis with neighbors"
+    for iin in range(0,n) :
+      iin_neib = set() # find the possible replacement at each position of basis
+      iin_neib = set(n_bas) & set(Neib[bas[iin],:])
+
+      for iinn in iin_neib :
+        "define neighbor basis"
+        basNN = list([]) # neighbor basis
+        basNN[:] = bas[:]
+        basNN[iin] = iinn # define new basis with NN site
+
+        "find order of this basis in block basis"
+        # number of this neighbor basis in old order
+        n_basNN = num_stat1[tuple(sorted(basNN))]
+
+        # neighbor basis in new order
+        mm2 = map_dob[n_basNN][0]
+
+        # times that this basis appears in new basis
+        pos_mm2 = []
+        pos_mm2 = map_dob[n_basNN][1:2*renormalize_factor[mm2]:2]
+
+        dtv, dtt = [], []
+        for term12 in pos_mm2: # calculate the coupling matrix elements
+          dtv += [tNN*(-1.0)**permute_time3(dob1[mm2][term12],basNN)\
+                         *1.0/np.sqrt((renormalize_factor[mm2]+0.0)*renormalize_factor[mm1])]
+          dtt += [term12]
+        
+        off_hop += [[mm1, mm2, dtv, dtt]]
+
+  return off_hop
+
+
+
+def get_hop_matrixele(renormalize_factor, dob1, N, n, tNN, Neib, num_stat1, map_dob, ni, nj):
+
+  hopij = []
+
+  for mm1 in range(0,len(renormalize_factor)) : # calculate matrix elements for each basis
+
+    for bas0x in dob1[mm1]: # bas: tuple
+      bas = list(bas0x)
+      if nj in bas :
+  
+        n_bas = list(set(range(0,N))-set(bas))
+        #print 'bas index,', bas.index(nj), Neib[bas[bas.index(nj)],:], nj
+        #exit()
+        "# define the coupling to basis with neighbors"
+        for iin in [bas.index(nj)] : #range(0,n) :
+          iin_neib = set() # find the possible replacement at each position of basis
+          iin_neib = set([ni]) & set(n_bas) & set(Neib[bas[iin],:])
+
+          for iinn in iin_neib :
+        
+            "define neighbor basis"
+            basNN = list([]) # neighbor basis
+            basNN[:] = bas[:]
+            basNN[iin] = iinn # define new basis with NN site
+
+            "find order of this basis in block basis"
+            # number of this neighbor basis in old order
+            n_basNN = num_stat1[tuple(sorted(basNN))]
+
+            # neighbor basis in new order
+            mm2 = map_dob[n_basNN][0]
+
+            # times that this basis appears in new basis
+            pos_mm2 = []
+            pos_mm2 = map_dob[n_basNN][1:2*renormalize_factor[mm2]:2]
+
+            for term12 in pos_mm2: # calculate the coupling matrix elements
+              dtv = tNN*(-1.0)**permute_time3(dob1[mm2][term12],basNN)\
+                             *1.0/np.sqrt(N*1.0/(3*renormalize_factor[mm2])*N*1.0/(3*renormalize_factor[mm1]))
+
+              hopij += [[mm1, mm2, dtv]]
+
+  return hopij
 
 
 

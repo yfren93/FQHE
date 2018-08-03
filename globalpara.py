@@ -9,6 +9,9 @@ Remember to modify both global global parameters
 
 import numpy as np
 import scipy as sp
+import time
+from datetime import datetime
+import psutil
 
 "Physical Constant in SI unit"
 me_emass = 9.10938356*1e-31  # kg
@@ -41,7 +44,7 @@ if (Lattice_type == 'honeycomb' or Lattice_type == 'kagome') :
 elif (Lattice_type == 'Lieb') :
   distNN, distNNN, distN3 = 1.0, np.sqrt(2.0), 2  # distance between NN/NNN sites  
 
-Ny,Nx = 3, 3
+Ny, Nx = 3, 3
 
 Height, Length = nUnit*Ny, Nx  #3, 3
 
@@ -52,18 +55,33 @@ pbcx, pbcy = 1, 1  # boundary condition: 1: true. 0: false
 
 "Global parameters in FQHE of 2DEG"
 V0_interaction = 1  # ke*e^2/epsilon/2l # Energy unit 
-m_flux = 12  # number of flux quantum in area of a*b: a*b/(2*pi*l^2) = a*b*B/(h/2e)
+m_flux = 8  # number of flux quantum in area of a*b: a*b/(2*pi*l^2) = a*b*B/(h/2e)
              # corresponds to the total sites
 ab_aspect = 1  # aspect of the square region defined as sqrt(a/b)
 
 "global Global parameters"
-fillingfrac = 3  # Filling fraction of total site
+fillingfrac = 2  # Filling fraction of total site
 
 "All system need parameters: "
-N_site = Height * Length  # for lattice model
-#N_site = m_flux  # for FQHE system
+#N_site = Height * Length  # for lattice model
+N_site = m_flux  # for FQHE system
 n_electron = N_site/fillingfrac
 
+
+def tnote(ts, mry0, notes):
+  te = time.time()
+  print notes, te-ts
+  print 'memory = ', psutil.virtual_memory().used/1024.0**3-mry0
+
+def init_date():
+  print '--------------------------------'
+  print '        start time              ' 
+  print str(datetime.now())
+
+def end_date():
+  print '        end time              ' 
+  print str(datetime.now())
+  print '--------------------------------'
 
 if __name__ == '__main__':
   """

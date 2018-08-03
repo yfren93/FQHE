@@ -22,11 +22,11 @@ N = N_site
 n = n_electron #N/nUnit
 
 mode1 = 'SA'
-eigv_k = 4
+eigv_k = 10
 " Get single particle states in momentum space "
 #UT = GetKagomeUnitaryTransform(phi0=1e-14)
 
-vNN, vNNN, vN3 = 1.0, 1.0, 0.0
+vNN, vNNN, vN3 = 1.0, 1e-9, 1e-9
 Flags={}
 Flags['Measure_density'] = False #True
 
@@ -36,7 +36,7 @@ by0 = 2.0*pi/(distNNN)*np.array([0, 1.0])
 bx0 = 2.0*pi/(distNNN)*np.array([np.sqrt(3.0)/2.0, -1.0/2.0])
 #print 'adb =', np.dot(ax0, bx0), np.dot(ay0, by0), np.dot(ax0, by0), np.dot(ay0, bx0)
 
-tunit, Vunit = unit_kagome(V1 = vNN, V2 = vNNN, t1c=1e-14) # default values are for t1-V1 only model
+tunit, Vunit = unit_kagome(V1 = vNN, V2 = vNNN, V3 = vN3, t1c=1e-14) # default values are for t1-V1 only model
 #print 'Vunit = ', Vunit
 UT = GetKagomeUnitaryTransformV1(tunit, Length, Height/nUnit)
 
@@ -133,7 +133,7 @@ for ii in range(0,Length*Height/nUnit):
 #Eige0, Eigf0 = eigsh(Ham_ptb, which = mode1, k = eigv_k)
 #Eige_ptb[Length*Height/nUnit, :] = Eige0
 
-np.savetxt('eiekk_L%dH%d_V12_1.txt'%(Length, Height), eigekk)
+np.savetxt('eiekk_L%dH%d_V1_1_V23_0.txt'%(Length, Height), eigekk)
 
 fig = plt.figure(26)
 ax = fig.add_subplot(111)
@@ -143,7 +143,7 @@ ax = fig.add_subplot(111)
 Eg = np.amin(eigekk)
 plt.title('Eg = '+str(Eg))
 plt.plot(range(Length*Height/nUnit), eigekk-Eg, 'b+')
-plt.savefig('PerturbEige_L%dH%d_V12_1.eps'%(Length,Height), format = 'eps')
+#plt.savefig('PerturbEige_L%dH%d_V12_1.eps'%(Length,Height), format = 'eps')
 
 plt.show()
 

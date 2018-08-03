@@ -47,7 +47,7 @@ if columnband :
 m = m_flux
 asp = ab_aspect
 
-eigv_k = 10
+eigv_k = 7 # 10
 mode1 = 'SA'
 
 # single layer initialize
@@ -63,27 +63,10 @@ ts = time.time()
 Vjjt = FQHE_2DEG_Int(m, asp)
 tnote(ts, mry0, 'get interaction matrix elements time =')
 
-# single layer full Hamiltonian
-singlelayer = 0
-if singlelayer :
-  ts = time.time()
-  row, col, dat = get_IntMatEle(bas2sq, sq2bas, Vjjt)
-  tnote(ts, mry0, 'time of get Hamiltonian in single layer =')
-  print 'len dat =', len(dat), len(dat)*1.0/numbas, 'size dat =', sys.getsizeof(dat)/1024.0/1024.0/1024.0
-
-  ts = time.time()
-  Hamff = sp.sparse.coo_matrix((dat,(row,col)), shape=(numbas,numbas))
-  Eige0, Eigf0 = eigsh(Hamff, k=eigv_k, which = mode1)
-  tnote(ts, mry0, 'get eigenvalue time =') 
-  print sorted(Eige0), 'per electron ', sorted(Eige0)[0]/n_electron
-
 # single layer block-diagonalized Hamiltonian
 sq2bask, bas2sqk, N_bk = sortU1basis_k_FQHE(sq2bas) # get block-diagonalized H
 print 'dimension of each block =', N_bk
 
-print 'sq2bask keys:', 0, sq2bask[0].keys()
-
-exit()
 ts = time.time()
 Hamk = {}
 #eigek = np.zeros((m,eigv_k))
@@ -91,16 +74,15 @@ for ii in range(m):
   bas2sq0 = bas2sqk[ii]
   sq2bas0 = sq2bask[ii]
   row, col, dat = get_IntMatEle(bas2sq0, sq2bas0, Vjjt)
-  #Ham = sp.sparse.coo_matrix((dat,(row,col)), shape=(N_bk[ii], N_bk[ii]))
-  #Eige0, Eigf0 = eigsh(Ham, k=eigv_k, which=mode1)
+  Ham = sp.sparse.coo_matrix((dat,(row,col)), shape=(N_bk[ii], N_bk[ii]))
+  Eige0, Eigf0 = eigsh(Ham, k=eigv_k, which=mode1)
   #eigek[ii,:] = Eige0
-  #print 'eigenvalue of %d-th block  = '%(ii), Eige0
+  print 'eigenvalue of %d-th block  = '%(ii), Eige0
   #Hamk[ii] = Ham
   Hamk[ii] = sp.sparse.coo_matrix((dat,(row,col)), shape=(N_bk[ii], N_bk[ii]))
 
   del row, col, dat, bas2sq0, sq2bas0
   gc.collect()
-
 
 print '  size of Hamk =', sys.getsizeof(Hamk)/1024.0/1024.0/1024.0, 'G'
 
@@ -121,38 +103,30 @@ dd = [2.0]
 # get eigenvalues for different d
 for ii in range(len(dd)):
   d = dd[ii]
-  ts = time.time()
+  #ts = time.time()
   VjjtIntL = FQHE_2DEG_Int_Interlayer(m, asp, d)
-  tnote(ts, mry0, 'get Interlayer interaction matrix element time =')
+  #tnote(ts, mry0, 'get Interlayer interaction matrix element time =')
 
   for kt in range(m):
 
-    ts = time.time()
     H0 = get_diag_block(Hamk, N_bk, kt, m)
-    #H0 = get_diag_block2(Hamk, N_bk, kt, m)
-    #row, col, data, ndim = get_diag_block2(Hamk, N_bk, kt, m)
-    #tnote(ts, mry0, 'get block-diagonalized Hamiltonian time =')
-    #print '  size of H0 =', sys.getsizeof(data)/1024.0/1024.0/1024.0, 'G'
-    #print '    nonzero elements of H0 =', len(data), 'dimension =', ndim
-    #time.sleep(3)
-    #exit()
 
     # get basis functions of bilayer systems
-    ts = time.time()
+    #ts = time.time()
     sq2baskTB, bas2sqkTB = get_bilayer_bas_kt(sq2bask, sq2bask, kt, m, bas2sq, bas2sq)
-    tnote(ts, mry0, 'get block-diagnoalized bilayer basis =')
+    #tnote(ts, mry0, 'get block-diagnoalized bilayer basis =')
 
     "TO DO: define function to calculate sequence based on top-bottom configuration!"
 
-    print '  size of bas2sq map =', (sys.getsizeof(sq2baskTB)+sys.getsizeof(bas2sqkTB))/1024.0/1024.0/1024.0, 'G'
+    #print '  size of bas2sq map =', (sys.getsizeof(sq2baskTB)+sys.getsizeof(bas2sqkTB))/1024.0/1024.0/1024.0, 'G'
 
-    ts = time.time()
+    #ts = time.time()
     row1, col1, dat1 = get_FQHE_Interlayer_MatEle(bas2sqkTB, sq2baskTB, bas2sq, sq2bas, bas2sq, sq2bas, VjjtIntL)
-    tnote(ts, mry0, 'get off-diagonalized Hamiltonian time =')
+    #tnote(ts, mry0, 'get off-diagonalized Hamiltonian time =')
     H0 += sps.coo_matrix((dat1,(row1, col1)), shape=(H0.shape[0],H0.shape[0]))
     del row1, col1, dat1
     gc.collect()
-    tnote(ts, mry0, 'del dat ... time =')
+    #tnote(ts, mry0, 'del dat ... time =')
 
     #exit()
 
@@ -187,12 +161,12 @@ for ii in range(len(dd)):
     #exit()
 
     Eige0, Eigf0 = eigsh(H0, k=eigv_k, which=mode1)
-    tnote(ts, mry0, 'get bilayer eigenvalue time =')
+    #tnote(ts, mry0, 'get bilayer eigenvalue time =')
 
     del H0, Eigf0
     gc.collect()
 
-    tnote(ts, mry0, 'del H0 Eigf0, time =')
+    #tnote(ts, mry0, 'del H0 Eigf0, time =')
     print '        eigenvalue of kt = %d, d = %5.3f, = '%(kt, d), Eige0, '\n'
 
   del VjjtIntL

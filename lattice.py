@@ -17,7 +17,7 @@ fun4: Central
 """
 
 from globalpara import *
-from sparse_Ham_fun import *
+#from sparse_Ham_fun import *
 import numpy as np
 
 """
@@ -146,6 +146,95 @@ def column_tab(tunit,Vunit={},Ny=3,PBC=pbcy, phi=0.0):
   return h0, h1
 
 
+
+
+
+"Define neighbors"
+def get_kagome_neighbor_sites(Height,Length,nNNcell):
+  tot_coordinate = 4
+  N = Height*Length
+  Neib = np.zeros((N,tot_coordinate),dtype = int)
+  Neib1 = np.zeros((N,4),dtype = int)
+  Neib2 = np.zeros((N,2),dtype = int)
+
+  distNc, pos_x, pos_y = pos_kagome()
+
+  for ii in range(0,N):
+    num, num1, num2 = -1, -1, -1
+    for jj in set(range(0,N))-set([ii]):
+      for kk in range(0,nNNcell):
+        if (abs(distNc[ii,jj,kk]-distNN) < 0.01):
+          num += 1
+          Neib[ii,num] = jj
+        elif (abs(distNc[ii,jj,kk]-distNNN) < 0.01):
+          num1 += 1
+          Neib1[ii,num1] = jj
+        elif (abs(distNc[ii,jj,kk]-distN3) < 0.01):
+          if ( (np.mod(ii,3)==0) and (ii/Height != jj/Height) and (np.mod(ii,Height)!=np.mod(jj,Height)) ):
+            num2 += 1
+            print ii,jj,num2
+            Neib2[ii,num2] = jj
+          elif ( (np.mod(ii,3)==1) and (ii/Height != jj/Height) and (np.mod(ii,Height)==np.mod(jj,Height)) ):
+            num2 += 1
+            print ii,jj,num2
+            Neib2[ii,num2] = jj
+          elif ( (np.mod(ii,3)==2) and (ii/Height == jj/Height) ): # and (np.mod(ii,Height)!=np.mod(jj,Height)) ):
+            num2 += 1
+            print ii,jj,num2
+            Neib2[ii,num2] = jj
+  print 'Neib2 = ', Neib2
+  return Neib, Neib1, Neib2
+
+
+'''
+*******************************************************************************
+Define the position of each site in a cell depending on the lattice type and
+boundary conditions
+The position of sites in nearest 8 cells are also defined for pbc case
+*******************************************************************************
+'''
+def pos_kagome(N_site0=N_site, Height0 = Height, Length0=Length):
+
+# import numpy as np
+  import scipy as sp
+  import itertools
+  import time
+
+  global Height, Length, nNNcell, pbcx, pbcy, N_site, n_electron, distNN, distNNN, distN3
+
+  '''
+  Intialize the lattice and boundary conditions
+  '''
+  # define positions of each site
+  N = N_site0 # Length*Height #Length*Height/2 # system size and electron number
+  pos_x, pos_y = np.zeros((N,1)), np.zeros((N,1))
+
+  pos_x[0:3,0] = np.array([0,distNN/2,distNN]) # define the first three sites
+  pos_y[0:3,0] = np.array([0,distNNN/2,0])
+
+  for ii in range(1,Height0/3): # define the first column
+    pos_x[ii*3:ii*3+3,0] = pos_x[0:3,0]+ii*distN3/2.0;
+    pos_y[ii*3:ii*3+3,0] = pos_y[0:3,0]+ii*distN3*np.sqrt(3.0)/2.0
+
+  for ii in range(1,Length0): # define the others
+    pos_x[ii*Height0:(ii+1)*Height0,0] = pos_x[0:Height0,0] + distN3*ii
+    pos_y[ii*Height0:(ii+1)*Height0,0] = pos_y[0:Height0,0]
+
+  # define unit vectors for pbc
+  ay = np.array([distNN, distNNN])*Height0/3; ax = np.array([distN3, 0])*Length0
+
+  "define distance between every two sites for both intra-cell and inter-cell cases"
+  dist = np.sqrt((pos_x-pos_x.T)**2 + (pos_y-pos_y.T)**2) # Inside of unit cell
+  distNc = np.zeros((N,N,nNNcell)) # Distance between sites in neighbor cells
+  for kky in range(0,3):    # for kky, kkx, ay, ax, xy indicate the two unit vectors
+    for kkx in range(0,3):  # for posx, posy, xy indicate the x-y axis
+      pos_xb1 = pos_x + (kky-1)*ay[0] + (kkx-1)*ax[0]; pos_yb1 = pos_y + (kky-1)*ay[1] + (kkx-1)*ax[1]
+      distNc[:,:,kky*3+kkx] = np.sqrt( (pos_x-pos_xb1.T)**2 + (pos_y-pos_yb1.T)**2 )
+
+  return distNc, pos_x, pos_y
+
+
+
 """
 Define the position of each site in a cell depending on the lattice type and
 boundary conditions                         
@@ -270,7 +359,7 @@ def GetKagomeUnitaryTransformV1(tunit, Length, Heightp):
           #posdx = (kky-1)*ay[0] + (kkx-1)*ax[0] 
           #posdy = (kky-1)*ay[1] + (kkx-1)*ax[1]
           #Ham += hopE[:,:,kky*3+kkx]*np.exp(1j*kx*posdx+1j*ky*posdy)
-      print 'maxx', np.amax(np.amax(abs(Ham - np.conjugate(Ham.T))))
+      #print 'maxx', np.amax(np.amax(abs(Ham - np.conjugate(Ham.T))))
       Ham = (Ham + np.conjugate(Ham.T))/2
 #      if (iiy*Length+iix) == 1 :
 #        print 'Ham 1 \n', Ham
@@ -366,7 +455,8 @@ def get_ManyParticleBasisfun(SingleParticleBas, NumSPB, n, Length, Heightp):
 
 
 def Kagome_Intfun(UT, Vint_q, j1b, j2b, j2pb, j1pb, Length, Heightp):
-  """ Define the all possible scattering matrix between two basis functions
+  """ Define the all possible scattering matrix between two states constructed by single
+        particle basis function in momentum space 
       Both direct and exchange channels are included
       Args:
           UT: unitary transformation of kagome lattice
@@ -496,7 +586,394 @@ def get_Kagome_IntMatEle(bas2sq, sq2bas, Vjjt, Onsite):
   return row, col, dat
 
 
+def PerturbativeCal(bas0, Vjjt, OnSite) : #, SingleParticleBas):
+  """Calculate the ground state energy at each momentum
+     Args:
+         bas0: basic basis function 
+         Vjjt: interaction matrix elements
+     Outputs:
+         row/col/dat: sparse matrix
+         numbas: total number of basis function
+  """
+  import numpy as np
+  import scipy as sp
+  import itertools
+
+  bas = list(bas0)
+  numbas = 0
+  row, col, dat = [0], [0], [np.dot(bas,OnSite)]
+
+  sq2bas, bas2sq = {}, {}
+  sq2bas[0] = tuple(bas)
+  bas2sq[tuple(bas)] = 0
+  
+  occp = np.nonzero(bas)  # occupied positions of electrons
+  inits = list(itertools.combinations(list(occp)[0],2))  # find initial pair of electrons
+
+  n = sum(bas)
+  N = len(bas)
+  #print 'Intralayer basis: ', inits, occp
+
+  #datd += [np.dot(bas, Onsite)]
+  for init_i in inits:  # find the possible scattering states
+    for fins in Vjjt[init_i].keys():  # find the possible final states
+      bas1 = []
+      bas1 = bas1 + bas   # initialize final state list
+      bas1[init_i[0]] = 0  # annihilate two electrons of initial state
+      bas1[init_i[1]] = 0
+      bas1[fins[0]] = 1  # creat two electrons of final states
+      bas1[fins[1]] = 1
+      if sum(bas1) == n:  # if there are two electrons on the same site
+        if tuple(bas1) in bas2sq.keys():
+          jj = bas2sq[tuple(bas1)]
+        else:
+          numbas += 1
+          bas2sq[tuple(bas1)] = numbas
+          sq2bas[numbas] = tuple(bas1)
+
+          eng = np.dot(bas1, OnSite)
+          occp1 = np.nonzero(bas1)  # occupied positions of electrons
+          inits1 = list(itertools.combinations(list(occp1)[0],2))  # find initial pair of electrons
+          for init_i1 in inits1:
+            eng += Vjjt[init_i1][init_i1]
+          row += [numbas]
+          col += [numbas]
+          dat += [eng]
+
+          jj = numbas
+          
+        ss0 = sorted([init_i[0], fins[0]])
+        ss1 = sorted([init_i[1], fins[1]])
+        #exchangetime_d = sum(bas[ss0[0]:ss0[1]])-1
+        #exchangetime_e = sum(bas[ss1[0]:ss1[1]])-1
+        exchangetime = sum(bas[0:init_i[0]]) + sum(bas[0:init_i[1]]) - 1
+        exchangetime += sum(bas1[0:fins[0]]) + sum(bas1[0:fins[1]]) - 1
+
+        row += [0]
+        col += [int(jj)]
+        dat += [(1)*((-1)**exchangetime)*Vjjt[init_i][fins]]
+        col += [0]
+        row += [int(jj)]
+        dat += [np.conjugate((1)*((-1)**exchangetime)*Vjjt[init_i][fins])]
+
+  #print 'perturbation basis =', numbas, dat
+  Ham_ptb = sp.sparse.coo_matrix((dat,(row,col)), shape = (numbas+1, numbas+1))
+  Hf = Ham_ptb.toarray()
+  eng0 = Hf[0, 0]
+  print 'eng0 -- = ', eng0
+  for ii in range(1,numbas+1):
+    eng0 += -1*Hf[0, ii]**2/(Hf[ii,ii]-Hf[0,0])
+  print 'eng0 ------- =', eng0
+  #print Ham_ptb.toarray()
+  return Ham_ptb
+
+
+
+def get_perturb_bas(bas0, Vjjt):
+  """Calculate the basis functions for each momentum
+     Args:
+         bas0: basic basis function 
+         Vjjt: interaction matrix elements
+     Outputs:
+         sq2bas & bas2sq: map between states and sequence
+         numbas: total number of basis function
+  """
+  import numpy as np
+  import scipy as sp
+  import itertools
+
+  bas = list(bas0)
+  numbas = 0
+
+  sq2bas, bas2sq = {}, {}
+  sq2bas[0] = tuple(bas)
+  bas2sq[tuple(bas)] = 0
+
+  occp = np.nonzero(bas)  # occupied positions of electrons
+  inits = list(itertools.combinations(list(occp)[0],2))  # find initial pair of electrons
+
+  n = sum(bas)
+  N = len(bas)
+  #print 'Intralayer basis: ', inits, occp
+
+  #datd += [np.dot(bas, Onsite)]
+  for init_i in inits:  # find the possible scattering states
+    for fins in Vjjt[init_i].keys():  # find the possible final states
+      bas1 = []
+      bas1 = bas1 + bas   # initialize final state list
+      bas1[init_i[0]] = 0  # annihilate two electrons of initial state
+      bas1[init_i[1]] = 0
+      bas1[fins[0]] = 1  # creat two electrons of final states
+      bas1[fins[1]] = 1
+      if sum(bas1) == n:  # if there are two electrons on the same site
+        if tuple(bas1) not in bas2sq.keys():
+          numbas += 1
+          bas2sq[tuple(bas1)] = numbas
+          sq2bas[numbas] = tuple(bas1)
+  
+  print 'basxx', bas
+ 
+  if bas[0] == 0:
+    bas[0] = 1
+    bas[1] = 0
+
+    print 'basxxx', bas
+ 
+    occp = np.nonzero(bas)  # occupied positions of electrons
+    inits = list(itertools.combinations(list(occp)[0],2))  # find initial pair of electrons
+
+    #print 'Intralayer basis: ', inits, occp
+
+    #datd += [np.dot(bas, Onsite)]
+    for init_i in inits:  # find the possible scattering states
+      for fins in Vjjt[init_i].keys():  # find the possible final states
+        bas1 = []
+        bas1 = bas1 + bas   # initialize final state list
+        bas1[init_i[0]] = 0  # annihilate two electrons of initial state
+        bas1[init_i[1]] = 0
+        bas1[fins[0]] = 1  # creat two electrons of final states
+        bas1[fins[1]] = 1
+        if sum(bas1) == n:  # if there are two electrons on the same site
+          if tuple(bas1) not in bas2sq.keys():
+            numbas += 1
+            bas2sq[tuple(bas1)] = numbas
+            sq2bas[numbas] = tuple(bas1)
+ 
+  return sq2bas, bas2sq, numbas
+
+
+def get_perturb_Ham(sq2bas, bas2sq, Vjjt, OnSite):
+  """get interaction matrix element
+     Args:
+         bas2sq: map basis function to its sequence
+         sq2bas: map sequence to basis function
+         Vjjt: interaction table
+     Output:
+         Hamtri: triple form of Hamiltonian matrix
+  """
+  import numpy as np
+  import itertools
+
+  row = []  # save off diagonal terms
+  col = []
+  dat = []
+
+  datd = []  # save diagonal terms
+  n = sum(sq2bas[0])
+
+  for ii in sq2bas.keys():  # for ii-th basis
+    bas = list(sq2bas[ii])  # basis function
+    occp = np.nonzero(bas)  # occupied positions of electrons
+    inits = list(itertools.combinations(list(occp)[0],2))  # find initial pair of electrons
+
+    #print 'Intralayer basis: ', inits, occp
+
+    datd += [np.dot(bas, OnSite)]
+    for init_i in inits:  # find the possible scattering states
+      for fins in Vjjt[init_i].keys():  # find the possible final states
+        bas1 = []
+        bas1 = bas1 + bas   # initialize final state list
+        bas1[init_i[0]] = 0  # annihilate two electrons of initial state
+        bas1[init_i[1]] = 0
+        bas1[fins[0]] = 1  # creat two electrons of final states
+        bas1[fins[1]] = 1
+        if sum(bas1) == n:  # if there are two electrons on the same site
+          if tuple(bas1) in bas2sq.keys():
+            jj = bas2sq[tuple(bas1)]
+          else:
+            continue
+
+          ss0 = sorted([init_i[0], fins[0]])
+          ss1 = sorted([init_i[1], fins[1]])
+          #exchangetime_d = sum(bas[ss0[0]:ss0[1]])-1
+          #exchangetime_e = sum(bas[ss1[0]:ss1[1]])-1
+          exchangetime = sum(bas[0:init_i[0]]) + sum(bas[0:init_i[1]]) - 1
+          exchangetime += sum(bas1[0:fins[0]]) + sum(bas1[0:fins[1]]) - 1
+
+          if jj == ii :  # if diagonal term
+            datd[ii] +=1*((-1)**exchangetime)*Vjjt[init_i][fins]
+          else :
+            row += [int(ii)]
+            col += [int(jj)]
+            dat += [(1)*((-1)**exchangetime)*Vjjt[init_i][fins]]
+
+  dat += datd
+  row += range(0,len(datd))
+  col += range(0,len(datd))
+
+  return row, col, dat
+  
+
+def get_self_eng(bas1, Vjjt):
+  """get the self energy of bas
+     Args:
+         bas1: basis function
+         Vjjt: interaction matrix
+     Outputs:
+         eng: self energy
+  """
+  import numpy as np
+  import itertools
+
+  eng = 0.0
+  occp1 = np.nonzero(bas1)  # occupied positions of electrons
+  inits1 = list(itertools.combinations(list(occp1)[0],2))  # find initial pair of electrons
+  for init_i1 in inits1:
+    eng += Vjjt[init_i1][init_i1]
+
+  return eng
+
+
+def get_Ham_ele(bas, bas1, Vjjt):
+  """get the self energy of bas
+     Args:
+         bas & bas1: basis function
+         Vjjt: interaction matrix from bas --> bas1
+     Outputs:
+         eng: interaction matrix element
+  """
+  import numpy as np
+  import itertools
+
+  bas_ar = np.array(bas)
+  bas1_ar = np.array(bas1)
+  site_diff = bas_ar - bas1_ar
+  site_anni = np.where(site_diff == 1)[0]
+  num_diff = len(site_anni)
+
+  eng = 0.0j
+  if num_diff > 2 :
+    eng = 0
+
+  elif num_diff == 2 :
+    site_crea = np.where(site_diff == -1)[0]
+    exchangetime = sum(bas[0:site_anni[0]]) + sum(bas[0:site_anni[1]]) - 1
+    exchangetime += sum(bas1[0:site_crea[0]]) + sum(bas1[0:site_crea[1]]) - 1
+
+    if tuple(site_crea) in Vjjt[tuple(site_anni)].keys():
+      eng += ((-1)**exchangetime)*Vjjt[tuple(site_anni)][tuple(site_crea)]
+
+  elif num_diff == 1 :
+    site_crea = np.where(site_diff == -1)[0]
+    bas_ar[site_anni[0]] = 0
+    occp = np.nonzero(bas_ar)[0]
+
+    for ii in occp :
+      init_i = sorted([ii, site_anni[0]])
+      fins = sorted([ii, site_crea[0]])
+
+      if tuple(fins) in Vjjt[tuple(init_i)].keys():
+        exchangetime = sum(bas[0:init_i[0]]) + sum(bas[0:init_i[1]]) - 1
+        exchangetime += sum(bas1[0:fins[0]]) + sum(bas1[0:fins[1]]) - 1
+        eng += ((-1)**exchangetime)*Vjjt[tuple(init_i)][tuple(fins)]
+
+  return eng
+
+
+def get_perturb_Ham_new(sq2bas, bas2sq, Vjjt, OnSite):
+  """get interaction matrix element
+     Args:
+         bas2sq: map basis function to its sequence
+         sq2bas: map sequence to basis function
+         Vjjt: interaction table
+     Output:
+         Hamtri: triple form of Hamiltonian matrix
+  """
+  import numpy as np
+  import itertools
+  import time 
+  row = []  # save off diagonal terms
+  col = []
+  dat = []
+
+  n = sum(sq2bas[0])
+  numbas = max(sq2bas.keys()) + 1
+  datd = np.zeros((numbas,),)  # save diagonal terms
+
+  for ii in sq2bas.keys():  # for ii-th basis
+    #stime = time.time()
+    bas = list(sq2bas[ii])  # basis function
+    occp = np.nonzero(bas)  # occupied positions of electrons
+    datd[ii] = np.dot(bas, OnSite) + np.real(get_self_eng(bas, Vjjt))
+
+    for jj in range(ii+1, numbas):
+      bas1 = list(sq2bas[jj])
+      matele = get_Ham_ele(bas, bas1, Vjjt)
+
+      if matele != 0:
+        row += [ii]
+        col += [jj]
+        dat += [matele]
+        row += [jj]
+        col += [ii]
+        dat += [np.conjugate(matele)]
+    #etime = time.time()
+    #print 'ii =', ii, etime - stime
+    
+  dat += list(datd)
+  row += range(0,len(datd))
+  col += range(0,len(datd))
+
+  return row, col, dat
+
+def kagome_self_eng(UT, Vint_q, SingleParticleBas, momp, Length, Heightp):
+  """calculate the self energy difference of states from ground state
+  """
+  import numpy as np
+  import matplotlib.pyplot as plt
+
+  plt.switch_backend('agg')
+
+  selfe = np.zeros((Length*Heightp, 8), dtype = complex)
+  for ii in range(0,Length):
+    for jj in range(0,Heightp):
+      if ii != momp[0] or jj != momp[1]:
+        j1b = (ii, jj, 0)
+        j2b = (0, 0, 1)
+        j2pb = (ii, jj, 0)
+        j1pb = (0, 0, 1)
+        selfe[jj*Length+ii, 0] += (-1) * Kagome_Intfun(UT, Vint_q, j1b, j2b, j2pb, j1pb, Length, Heightp)
+  
+        j1b = (0, 0, 1)
+        j2b = (ii, jj, 0)
+        j2pb = (ii, jj, 0)
+        j1pb = (0, 0, 1)
+        selfe[jj*Length+ii, 2] += (1) * Kagome_Intfun(UT, Vint_q, j1b, j2b, j2pb, j1pb, Length, Heightp)
+  
+        j1b = (ii, jj, 0)
+        j2b = (momp[0], momp[1], 0)
+        j2pb = (momp[0], momp[1], 0)
+        j1pb = (ii, jj, 0)
+        selfe[jj*Length+ii, 6] += (-1) * Kagome_Intfun(UT, Vint_q, j1b, j2b, j2pb, j1pb, Length, Heightp)
+
+      if ii != 0 or jj != 0 :
+        
+        j1b = (np.mod(ii+momp[0],Length), np.mod(jj+momp[1],Heightp), 0)
+        j2b = (momp[0], momp[1], 0)
+        j2pb = (np.mod(ii+momp[0],Length), np.mod(jj+momp[1],Heightp), 0)
+        j1pb = (momp[0], momp[1], 0)
+        selfe[jj*Length+ii, 4] += (1)*Kagome_Intfun(UT, Vint_q, j1b, j2b, j2pb, j1pb, Length, Heightp)
+
+  selfe = np.real(selfe)
+  print 'total = ', sum(sum(np.real(selfe)))
+
+  fig = plt.figure(1)
+  ax = fig.add_subplot(111)
+  ax.plot(range(Length*Heightp), selfe[:,0], '-+r')
+  ax.plot(range(Length*Heightp), selfe[:,2], '-+g')
+  ax.plot(range(Length*Heightp), selfe[:,4], '-+b')
+  ax.plot(range(Length*Heightp), selfe[:,6], '-+k')
+  plt.savefig('self_energy.eps', format='eps') 
+
+
 def classify_VjjK(Vjjt, SingleParticleBas): 
+  """classify the interaction element according to the scattering states involved
+     Args: 
+         Vjjt:
+         SingleParticleBas: 
+     Output:
+         V00:
+  """
   ns = [0, 0, 0, 0]
   V00 = []
   V01 = []
@@ -520,7 +997,7 @@ def classify_VjjK(Vjjt, SingleParticleBas):
   return V00, V01, V11, V02
 
 def get_newmap(oldmap, nbas, m):
-  """define new map from old ones
+  """define new map (occupation configuration e.g., [01001]) from old ones (site occupied e.g., [2,5])
      Args: 
          oldmap: old map between sequence and bas
          nbas: number of basis function
@@ -615,7 +1092,7 @@ def FQHE_2DEG_Intfun(m, asp, j1, j2, j2p, j1p):
 
   import numpy as np
  
-  sumcut = 20
+  sumcut = int(np.sqrt(m*8.0)+1) 
   iasp = 1.0/asp
 
   Vjj = 0.0j
@@ -624,7 +1101,8 @@ def FQHE_2DEG_Intfun(m, asp, j1, j2, j2p, j1p):
     Vjj = 0
   else:
     for ss in range(-1*sumcut, sumcut) :
-      for tt in range(-1*sumcut, sumcut) :
+      #for tt in range(-1*sumcut, sumcut) :
+      for tt in range(-1*sumcut-(j2-j2p), sumcut-(j2-j2p)) :
         tt1 = tt*m + j2 - j2p
         if tt1 != 0 or ss != 0 :
           qst = np.sqrt((ss*iasp)**2+(tt1*asp)**2)
@@ -669,7 +1147,7 @@ def FQHE_2DEG_Int(m, asp):
   return Vjjt
 
 
-def FQHE_2DEG_Intfun_Interlayer(m, asp, j1, j2, j2p, j1p, d):
+def FQHE_2DEG_Intfun_Interlayer(m, asp, j1, j2, j2p, j1p, d, thetax = 0.0, thetay = 0.0):
   """ define summation serials of a single scattering process, not matrix elements
       Define the Coulomb interaction elements for a single scattering process 
       of j1p --> j1; j2p --> j2
@@ -686,7 +1164,7 @@ def FQHE_2DEG_Intfun_Interlayer(m, asp, j1, j2, j2p, j1p, d):
 
   import numpy as np
  
-  sumcut = 20
+  sumcut = int(np.sqrt(8.0*m))+1 #10
   iasp = 1.0/asp
   d1 = d*np.sqrt(2.0*np.pi/m) # d in unit of l
 
@@ -696,11 +1174,13 @@ def FQHE_2DEG_Intfun_Interlayer(m, asp, j1, j2, j2p, j1p, d):
     Vjj = 0
   else:
     for ss in range(-1*sumcut, sumcut) :
-      for tt in range(-1*sumcut, sumcut) :
+      for tt in range(-1*sumcut-(j2-j2p), sumcut-(j2-j2p)) :
         tt1 = tt*m + j2 - j2p
         if tt1 != 0 or ss != 0 :
           qst = np.sqrt((ss*iasp)**2+(tt1*asp)**2)
-          Vjj += np.exp(-d1*qst)*np.exp(-np.pi/m*qst**2)*np.exp(-1j*2*np.pi/m*ss*(j1-j2p))/qst
+          phasest = np.exp(1j*(ss*thetay-tt1*thetax)/m)
+          #phasest = np.exp(1j*(ss*thetay-tt1*thetax))
+          Vjj += phasest*np.exp(-d1*qst)*np.exp(-np.pi/m*qst**2)*np.exp(-1j*2*np.pi/m*ss*(j1-j2p))/qst
 
     #print 'j1/j2 = (%d, %d), j2p/j1p = (%d, %d), Vjj = %6.3f' % (j1, j2, j2p, j1p, Vjj)
   Vjj = Vjj/np.sqrt(2*np.pi*m)
@@ -708,7 +1188,7 @@ def FQHE_2DEG_Intfun_Interlayer(m, asp, j1, j2, j2p, j1p, d):
   return Vjj
 
 
-def FQHE_2DEG_Int_Interlayer(m, asp, d):
+def FQHE_2DEG_Int_Interlayer(m, asp, d, thetax = 0.0, thetay = 0.0):
   """ Define the all possible scattering matrix between two basis functions
       Both direct and exchange channels are included
       Args:
@@ -738,7 +1218,7 @@ def FQHE_2DEG_Int_Interlayer(m, asp, d):
       j1 = finls[0]
       j2 = finls[1]
 
-      Vjj1 = FQHE_2DEG_Intfun_Interlayer(m, asp, j1, j2, j2p, j1p, d) # direct scattering
+      Vjj1 = FQHE_2DEG_Intfun_Interlayer(m, asp, j1, j2, j2p, j1p, d, thetax = thetax, thetay = thetay) # direct scattering
       #print inits, finls, Vjj1
 
       if Vjj1 != 0 :
@@ -791,7 +1271,7 @@ if __name__ == '__main__':
   print mat
   x = 0
   for ii in Vjjt.keys():
-    print 'ii = ', ii, '\n', Vjjt[ii]
+    #print 'ii = ', ii, '\n', Vjjt[ii]
     y = 0
     for jj in Vjjt[ii].keys():
       mat[x] += [Vjjt[ii][jj]]
