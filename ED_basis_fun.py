@@ -1,11 +1,15 @@
 #!/bin/usr/env python
 from globalpara import *
+from lattice import *
 import multiprocessing
 import gc
 import sys
 from kronR1 import *
 import time
 import numpy as np
+import scipy.sparse as sps
+from scipy.special import comb
+from scipy.sparse.linalg import eigsh
 
 def renorm_a(a):
   ac = np.zeros((4,),dtype=complex)
@@ -783,6 +787,119 @@ def get_hop_matrixele(renormalize_factor, dob1, N, n, tNN, Neib, num_stat1, map_
 
   return hopij
 
+
+def getHamiltonian(Hamff, m, asp, d, bas2sqTB, sq2basTB, bas2sq, sq2bas, thetax=0.0, thetay=0.0) :
+  ''' This function sort the basis functions into translational inequivalent configurations
+  denote the equivalent configurations as the same basis.
+  Args:
+      N, n: total site and electron numbers
+      N1, N2: unit cell numbers along y and x directions
+      n_unit: site number in each unit cell
+  Outputs:
+      renormalize_factor: define the appearance time of each basis
+      map_dob: a dic, map_dob[ii] = [n1,t1,n2,t2 ...]
+                                    n1,n2... are sequence numbers of basis functions
+                                    t1,t2... are translation operations that relate them to the first one
+      dob1: a dic, dob1[ii] = [(conf1), (conf2), ...] map sequence to all the possible configurations
+      num_stat1: give a basis function, find its sequence in old order
+  '''
+
+  numbas = Hamff.shape[0]
+
+  VjjtIntL = FQHE_2DEG_Int_Interlayer(m, asp, d, thetax=thetax, thetay=thetay)
+
+  row1, col1, dat1 = get_FQHE_Interlayer_MatEle(bas2sqTB, sq2basTB, bas2sq, sq2bas, bas2sq, sq2bas, VjjtIntL)
+
+  # get new Hamiltonian and eigenstates
+  HamBL = sps.kron(np.eye(numbas), Hamff, format='coo')
+  HamBL += sps.kron(Hamff, np.eye(numbas), format='coo') \
+        + sp.sparse.coo_matrix((dat1,(row1, col1)), shape=(numbas**2, numbas**2))
+
+  return HamBL
+
+
+def getBerryCurv(thetax0, thetay0, getHamiltonian, *args):
+  ''' This function sort the basis functions into translational inequivalent configurations
+  denote the equivalent configurations as the same basis.
+  Args:
+      N, n: total site and electron numbers
+      N1, N2: unit cell numbers along y and x directions
+      n_unit: site number in each unit cell
+  Outputs:
+      renormalize_factor: define the appearance time of each basis
+      map_dob: a dic, map_dob[ii] = [n1,t1,n2,t2 ...]
+                                    n1,n2... are sequence numbers of basis functions
+                                    t1,t2... are translation operations that relate them to the first one
+      dob1: a dic, dob1[ii] = [(conf1), (conf2), ...] map sequence to all the possible configurations
+      num_stat1: give a basis function, find its sequence in old order
+  '''
+
+  eigv_k = 10
+  mode1 = 'SA'
+  Ntheta = len(thetax0)
+
+  print 'thetax = \n', thetax0, 'thetay = \n', thetay0
+
+  bondflux = np.zeros((Ntheta**2, Ntheta**2), dtype=complex) # iix * Ntheta + iiy
+  BerryCur = np.zeros((Ntheta-1, Ntheta-1))
+
+  EigeBLt = np.zeros((Ntheta**2, eigv_k))
+
+  for iix in range(0, Ntheta):
+    for iiy in range(0, Ntheta):
+      ts = time.time()
+
+      HamBL = getHamiltonian(*args, thetax=thetax0[iix], thetay=thetay0[iiy])
+
+      if iix ==0 and iiy ==0 :
+        numbasBL = HamBL.shape[0]
+        wavfun = np.zeros((numbasBL, Ntheta), dtype=complex)
+
+      # Calculate eigen-vector with given initial vector from neighbor sites
+      if iix == 0 and iiy == 0 :
+        EigeBL, EigfBL = eigsh(HamBL, k=eigv_k, which=mode1)
+      if iix == 0 and iiy > 0 :
+        EigeBL, EigfBL = eigsh(HamBL, k=eigv_k, which=mode1, v0=wavfun[:,iiy-1])
+      if iix > 0 :
+        EigeBL, EigfBL = eigsh(HamBL, k=eigv_k, which=mode1, v0=wavfun[:,iiy])
+
+      print sorted(EigeBL)
+      EigeBL = np.real(EigeBL)
+
+      EigeBLt[iix*Ntheta+iiy, :] = np.real(sorted(EigeBL))  # eigen values
+
+      #plt.clf()
+      #plt.plot(range(Ntheta**2), EigeBLt[:, 0:5], 'o')
+      #plt.savefig('EigeBL_Chern_'+str(m)+'_d'+str(int(10*d))+'.eps',format='eps')
+
+      # calculate the bondflux
+      if iix > 0 :
+        point_init, point_final = (iix-1)*Ntheta+iiy, iix*Ntheta+iiy  #
+        # < init | final > : overlap between initial state of (theta_x0, theta_y0) and final state of (theta_x0 + d_theta, theta_y0)
+        bondflux[point_init, point_final] = np.dot(np.conjugate(wavfun[:,iiy]), \
+                                                   EigfBL[:, EigeBL.argmin()])
+        bondflux[point_final, point_init] = np.conjugate(bondflux[point_init, point_final])
+
+        print 'bond_flux ', point_init, point_final, bondflux[point_init, point_final]
+      wavfun[:, iiy] = EigfBL[:, EigeBL.argmin()]#*np.conjugate(ppv)/abs(ppv)  # save the ground state wavefunction
+  
+      if iiy > 0 :
+        point_init, point_final = iix*Ntheta+iiy-1, iix*Ntheta+iiy  #
+        # < init | final > : overlap between initial state of (theta_x0, theta_y0) 
+        #                                and final state of (theta_x0, theta_y0 + d_theta)
+        bondflux[point_init, point_final] = np.dot(np.conjugate(wavfun[:,iiy-1]), wavfun[:,iiy])
+        bondflux[point_final, point_init] = np.conjugate(bondflux[point_init, point_final])
+
+        print 'bond_flux ', point_init, point_final, bondflux[point_init, point_final]
+
+  for iix in range(Ntheta-1) :
+    for iiy in range(Ntheta-1) :
+      pt00, pt10 = iix*Ntheta+iiy, (iix+1)*Ntheta+iiy
+      pt11, pt01 = (iix+1)*Ntheta+(iiy+1), iix*Ntheta+iiy+1 
+      BerryCur[iix, iiy] = np.imag(bondflux[pt00,pt10] + bondflux[pt10,pt11] \
+                                 + bondflux[pt11,pt01] + bondflux[pt01,pt00])
+
+  return bondflux, BerryCur
 
 
 if __name__ == '__main__':
